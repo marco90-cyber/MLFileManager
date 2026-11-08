@@ -136,6 +136,8 @@ fun BrowserScreen(nav: Nav, source: Source) {
     var searching by rememberSaveable { mutableStateOf(source is Source.Search) }
     var query by rememberSaveable { mutableStateOf("") }
     val selected = remember { mutableStateListOf<String>() }
+    // Ultimo elemento selezionato: tenendo premuto un altro si seleziona tutto quello che sta in mezzo
+    var anchor by remember { mutableStateOf<String?>(null) }
     var dialog by remember { mutableStateOf<Dlg?>(null) }
     var menu by remember { mutableStateOf(false) }
     var fabMenu by remember { mutableStateOf(false) }
@@ -288,12 +290,24 @@ fun BrowserScreen(nav: Nav, source: Source) {
                                 .combinedClickable(
                                     onClick = {
                                         when {
-                                            selecting -> if (sel) selected.remove(item.path) else selected.add(item.path)
+                                            selecting -> if (sel) selected.remove(item.path) else { selected.add(item.path); anchor = item.path }
                                             item.kind == Kind.ARCHIVE && extOf(item.name) in setOf("zip", "jar") -> dialog = Dlg.Archive(item)
                                             else -> openItem(ctx, nav, item, list)
                                         }
                                     },
-                                    onLongClick = { if (sel) selected.remove(item.path) else selected.add(item.path) }
+                                    onLongClick = {
+                                        val from = anchor?.takeIf { it in selected }?.let { a -> list.indexOfFirst { it.path == a } } ?: -1
+                                        when {
+                                            // Selezione a intervallo: dal primo selezionato fino a questo
+                                            selecting && !sel && from >= 0 -> {
+                                                val range = if (from <= i) from..i else i..from
+                                                range.forEach { k -> list[k].path.let { if (it !in selected) selected.add(it) } }
+                                                anchor = item.path
+                                            }
+                                            sel -> selected.remove(item.path)
+                                            else -> { selected.add(item.path); anchor = item.path }
+                                        }
+                                    }
                                 )
                         )
                     }
