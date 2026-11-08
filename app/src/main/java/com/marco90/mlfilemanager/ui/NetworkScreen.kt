@@ -29,7 +29,11 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.Download
+import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material.icons.outlined.Upload
 import androidx.compose.material.icons.outlined.Devices
 import androidx.compose.material.icons.outlined.Language
 import androidx.compose.material.icons.outlined.Lock
@@ -144,6 +148,8 @@ fun NetworkScreen(nav: Nav) {
                 st.error?.let { Text(it, color = cs.error, style = MaterialTheme.typography.bodySmall) }
             }
 
+            TransfersCard(s.binaryUnits)
+
             // Con il servizio attivo le voci restano visibili (in grigio) ma non si cambiano;
             // la pagina si può sempre scorrere fino in fondo.
             val editable = !st.running
@@ -240,5 +246,60 @@ private fun Credential(label: String, value: String) {
         Text(label.uppercase(), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = cs.primary, modifier = Modifier.width(96.dp))
         Text(value, style = MaterialTheme.typography.bodyLarge, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
         Icon(Icons.Outlined.ContentCopy, "Copia", tint = cs.primary, modifier = Modifier.size(20.dp))
+    }
+}
+
+@Composable
+private fun TransfersCard(binary: Boolean) {
+    val items by com.marco90.mlfilemanager.net.Transfers.items.collectAsStateWithLifecycle()
+    if (items.isEmpty()) return
+    val cs = MaterialTheme.colorScheme
+    val active = items.filter { it.active }
+    val finished = items.filter { !it.active }
+    Column(Modifier.padding(horizontal = 16.dp)) {
+        Row(Modifier.fillMaxWidth().padding(start = 16.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                if (active.isNotEmpty()) "Trasferimenti in corso (${active.size})" else "Trasferimenti recenti",
+                style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = cs.primary,
+                modifier = Modifier.weight(1f)
+            )
+            if (finished.isNotEmpty()) androidx.compose.material3.TextButton(onClick = { com.marco90.mlfilemanager.net.Transfers.clearFinished() }) { Text("Pulisci") }
+        }
+        Column(Modifier.clip(RoundedCornerShape(28.dp)), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            (active + finished).forEach { t ->
+                Column(
+                    Modifier.fillMaxWidth().background(if (t.active) cs.primaryContainer else cs.surfaceContainer).padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    val fg = if (t.active) cs.onPrimaryContainer else cs.onSurface
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Icon(
+                            when {
+                                !t.active && !t.ok -> Icons.Outlined.ErrorOutline
+                                !t.active -> Icons.Outlined.CheckCircle
+                                t.upload -> Icons.Outlined.Download
+                                else -> Icons.Outlined.Upload
+                            },
+                            null,
+                            tint = if (!t.active && !t.ok) cs.error else if (t.active) cs.primary else cs.onSurfaceVariant
+                        )
+                        Column(Modifier.weight(1f)) {
+                            Text(t.name, style = MaterialTheme.typography.bodyLarge, color = fg, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                            Text(
+                                "${if (t.upload) "In arrivo" else "In uscita"} · ${t.proto} · ${t.client}",
+                                style = MaterialTheme.typography.labelSmall, color = fg.copy(alpha = .75f)
+                            )
+                        }
+                        if (t.active && t.fraction >= 0f) Text("${(t.fraction * 100).toInt()}%", style = MaterialTheme.typography.labelLarge, color = cs.primary, fontWeight = FontWeight.SemiBold)
+                    }
+                    if (t.active) {
+                        if (t.fraction >= 0f) androidx.compose.material3.LinearProgressIndicator(
+                            progress = { t.fraction }, modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp))
+                        ) else androidx.compose.material3.LinearProgressIndicator(modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)))
+                    }
+                    Text(com.marco90.mlfilemanager.net.Transfers.summary(t, binary), style = MaterialTheme.typography.bodySmall, color = fg.copy(alpha = .85f))
+                }
+            }
+        }
     }
 }

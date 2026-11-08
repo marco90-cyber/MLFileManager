@@ -35,7 +35,11 @@ class HttpServer(
         return try {
             when (session.uri) {
                 "/", "/browse" -> page(param(session, "path") ?: "/")
-                "/dl" -> download(param(session, "path") ?: "")
+                "/dl" -> download(session, param(session, "path") ?: "")
+                "/put" -> put(session)
+                "/api/transfers" -> newFixedLengthResponse(Response.Status.OK, "application/json; charset=utf-8", Transfers.json()).apply {
+                    addHeader("Cache-Control", "no-store")
+                }
                 "/upload" -> upload(session)
                 "/mkdir" -> mkdir(session)
                 "/delete" -> delete(session)
@@ -72,10 +76,12 @@ class HttpServer(
     private fun enc(s: String) = URLEncoder.encode(s, "UTF-8").replace("+", "%20")
     private fun esc(s: String) = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")
 
-    private fun download(path: String): Response {
+    private fun download(session: IHTTPSession, path: String): Response {
         val f = resolve(path)
         if (f == null || !f.isFile) return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "File non trovato")
-        return newFixedLengthResponse(Response.Status.OK, mimeOf(f.name), FileInputStream(f), f.length()).apply {
+        val h = Transfers.begin(f.name, "Browser", false, session.remoteIpAddress ?: "?", f.length())
+        val input = Transfers.CountingInput(FileInputStream(f), h, f.length())
+        return newFixedLengthResponse(Response.Status.OK, mimeOf(f.name), input, f.length()).apply {
             addHeader("Content-Disposition", "attachment; filename*=UTF-8''${enc(f.name)}")
         }
     }
@@ -100,6 +106,46 @@ class HttpServer(
         File(tmp).delete()
         Net.scan(target)
         return newFixedLengthResponse(Response.Status.OK, "text/plain", "OK")
+    }
+
+    /**
+     * Caricamento "grezzo": il browser invia il file così com'è (corpo della richiesta),
+     * così il telefono vede avanzamento e velocità mentre arriva e non serve una copia temporanea.
+     */
+    private fun put(s: IHTTPSession): Response {
+        if (readOnly) return newFixedLengthResponse(Response.Status.FORBIDDEN, "text/plain", "Sola lettura")
+        if (s.method != Method.POST && s.method != Method.PUT) return newFixedLengthResponse(Response.Status.METHOD_NOT_ALLOWED, "text/plain", "Usa POST")
+        val dir = resolve(param(s, "path") ?: "/")
+        if (dir == null || !dir.isDirectory) return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "Cartella non trovata")
+        val name = (param(s, "name") ?: "file").substringAfterLast('/').substringAfterLast('\\').trim().ifEmpty { "file" }
+        if (name.any { it in ":*?\"<>|" }) return newFixedLengthResponse(Response.Status.BAD_REQUEST, "text/plain", "Nome non valido")
+        val len = s.headers["content-length"]?.toLongOrNull() ?: return newFixedLengthResponse(Response.Status.BAD_REQUEST, "text/plain", "Dimensione mancante")
+        val target = com.marco90.mlfilemanager.data.uniqueFile(dir, name)
+        val part = File(dir, ".${target.name}.part")
+        val h = Transfers.begin(target.name, "Browser", true, s.remoteIpAddress ?: "?", len)
+        try {
+            val input = s.inputStream
+            java.io.FileOutputStream(part).use { out ->
+                val buf = ByteArray(256 * 1024)
+                var left = len
+                while (left > 0) {
+                    val r = input.read(buf, 0, minOf(buf.size.toLong(), left).toInt())
+                    if (r < 0) break
+                    out.write(buf, 0, r)
+                    left -= r
+                    h.add(r.toLong())
+                }
+                if (left > 0) throw java.io.IOException("Caricamento interrotto")
+            }
+            if (!part.renameTo(target)) throw java.io.IOException("Impossibile salvare il file")
+            h.end(true)
+            Net.scan(target)
+            return newFixedLengthResponse(Response.Status.OK, "text/plain", "OK")
+        } catch (e: Exception) {
+            part.delete()
+            h.end(false)
+            throw e
+        }
     }
 
     private fun mkdir(s: IHTTPSession): Response {
@@ -156,6 +202,11 @@ class HttpServer(
 <label class="btn">Carica file<input id="up" type="file" multiple hidden></label>
 <button class="btn t" onclick="mk()">Nuova cartella</button>
 <span id="st"></span>
+</div>
+<div id="q" class="card" hidden>
+<div class="qh"><b>Caricamento</b><button class="btn t" onclick="stopUp()">Annulla</button></div>
+<div id="qn"></div><div class="bar"><i id="qb"></i></div><small id="qi"></small>
+<div class="bar"><i id="qa"></i></div><small id="qt"></small>
 </div>"""
         val html = """<!doctype html><html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>MLFileManager · ${esc(vp)}</title>
@@ -171,16 +222,47 @@ header{padding:20px 24px 8px}h1{margin:0 0 6px;font-size:24px;font-weight:600}
 .row:hover{background:#E3E6EF}.ic{font-size:22px}.n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.m{font-size:13px;color:#44474F}
 .del{border:0;background:transparent;color:#8C1D18;font-size:16px;cursor:pointer}
 .ro{padding:0 24px;color:#44474F}
+.card{margin:4px 16px 12px;padding:16px 18px;border-radius:24px;background:#D8E2FF;color:#001A43;display:flex;flex-direction:column;gap:6px}
+.qh{display:flex;justify-content:space-between;align-items:center}
+.bar{height:8px;border-radius:4px;background:#fff;overflow:hidden}.bar i{display:block;height:100%;width:0;background:#2B5BB5;border-radius:4px;transition:width .3s}
+.card small{color:#2B3A55}.t{display:flex;flex-direction:column;gap:4px;margin-top:6px}.tn{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 @media(max-width:640px){.row{grid-template-columns:36px 1fr 36px}.m{display:none}}
 </style></head><body>
 <header><h1>MLFileManager</h1><div class="cr">$crumbs</div></header>
 $tools
+<div id="tr" class="card" hidden></div>
 <div class="list">$rows</div>
 <script>
 const path=${jsString(vp)};
 const st=document.getElementById('st');
 const up=document.getElementById('up');
-if(up){up.onchange=async()=>{const fs=[...up.files];for(let i=0;i<fs.length;i++){st.textContent='Caricamento '+(i+1)+' di '+fs.length+': '+fs[i].name;const fd=new FormData();fd.append('file',fs[i],fs[i].name);const r=await fetch('/upload?path='+encodeURIComponent(path),{method:'POST',body:fd});if(!r.ok){alert('Errore: '+await r.text());break}}location.reload()}}
+const q=document.getElementById('q');
+function fmt(b){if(b<1000)return b+' B';const u=['kB','MB','GB','TB'];let v=b,i=-1;do{v/=1000;i++}while(v>=1000&&i<3);return (v>=100?v.toFixed(0):v.toFixed(1)).replace('.',',')+' '+u[i]}
+function eta(s){if(!isFinite(s)||s<0)return '';s=Math.round(s);if(s<60)return s+' s';if(s<3600)return Math.floor(s/60)+' min '+(s%60)+' s';return Math.floor(s/3600)+' h '+Math.floor(s%3600/60)+' min'}
+let cur=null;
+if(up){up.onchange=async()=>{const fs=[...up.files];up.value='';if(!fs.length)return;q.hidden=false;
+const all=fs.reduce((a,f)=>a+f.size,0);let sent=0,t0=performance.now();
+for(let i=0;i<fs.length;i++){const f=fs[i];
+const ok=await new Promise(res=>{const x=new XMLHttpRequest();cur=x;let last=0,lastT=performance.now(),sp=0;
+x.open('POST','/put?path='+encodeURIComponent(path)+'&name='+encodeURIComponent(f.name));
+x.upload.onprogress=e=>{const now=performance.now(),dt=(now-lastT)/1000;if(dt>=0.4){const inst=(e.loaded-last)/dt;sp=sp?sp*0.6+inst*0.4:inst;last=e.loaded;lastT=now}
+const tot=sent+e.loaded,el=(now-t0)/1000,avg=tot/Math.max(el,0.1);
+document.getElementById('qn').textContent='File '+(i+1)+' di '+fs.length+': '+f.name;
+document.getElementById('qb').style.width=(e.total?e.loaded/e.total*100:0)+'%';
+document.getElementById('qi').textContent=fmt(e.loaded)+' di '+fmt(f.size)+(sp?' · '+fmt(sp)+'/s':'')+(sp?' · '+eta((f.size-e.loaded)/sp)+' rimanenti':'');
+document.getElementById('qa').style.width=(all?tot/all*100:0)+'%';
+document.getElementById('qt').textContent='Totale: '+fmt(tot)+' di '+fmt(all)+' · '+eta((all-tot)/avg)+' rimanenti'};
+x.onload=()=>res(x.status==200||(alert('Errore con '+f.name+': '+x.responseText),false));
+x.onerror=()=>{alert('Errore di rete con '+f.name);res(false)};x.onabort=()=>res(false);
+x.setRequestHeader('Content-Type','application/octet-stream');x.send(f)});
+if(!ok)break;sent+=f.size}
+cur=null;location.reload()}}
+function stopUp(){if(cur)cur.abort()}
+const tr=document.getElementById('tr');
+async function poll(){try{const r=await fetch('/api/transfers',{cache:'no-store'});const l=await r.json();const act=l.filter(t=>t.active);
+tr.hidden=!act.length;tr.innerHTML='<b>Trasferimenti in corso</b>'+act.map(t=>'<div class="t"><div class="tn">'+(t.up?'⬆ ':'⬇ ')+t.name.replace(/</g,'&lt;')+' <small>'+t.proto+' · '+t.client+'</small></div><div class="bar"><i style="width:'+(t.total>0?t.done/t.total*100:0)+'%"></i></div><small>'+fmt(t.done)+(t.total>0?' di '+fmt(t.total):'')+(t.speed?' · '+fmt(t.speed)+'/s':'')+(t.eta>=0?' · '+eta(t.eta)+' rimanenti':'')+'</small></div>').join('')}catch(e){}
+setTimeout(poll,1000)}
+poll();
 async function mk(){const n=prompt('Nome della nuova cartella');if(!n)return;const b=new URLSearchParams({path:path,name:n});const r=await fetch('/mkdir',{method:'POST',body:b});if(!r.ok)alert(await r.text());location.reload()}
 async function del(p){if(!confirm('Eliminare definitivamente?'))return;const r=await fetch('/delete',{method:'POST',body:new URLSearchParams({path:p})});if(!r.ok)alert(await r.text());location.reload()}
 </script></body></html>"""

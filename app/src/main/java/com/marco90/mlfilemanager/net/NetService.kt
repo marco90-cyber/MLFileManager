@@ -102,6 +102,17 @@ class NetService : Service() {
     private var http: HttpServer? = null
     private var wifiLock: WifiManager.WifiLock? = null
     private var wakeLock: PowerManager.WakeLock? = null
+    private var baseText = ""
+    private val handler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var lastShown = ""
+    /** Ogni secondo aggiorna la notifica con i trasferimenti in corso. */
+    private val ticker = object : Runnable {
+        override fun run() {
+            if (ftp == null && http == null) return
+            updateNotification()
+            handler.postDelayed(this, 1000)
+        }
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -153,10 +164,13 @@ class NetService : Service() {
         com.marco90.mlfilemanager.data.AppLog.i("Rete", "Servizio avviato: ${ftpUrl ?: "FTP spento"} · ${httpUrl ?: "browser spento"}")
         if (error != null) com.marco90.mlfilemanager.data.AppLog.w("Rete", error)
         Net.set(NetStatus(running = true, ftpUrl = ftpUrl, httpUrl = httpUrl, user = user, password = pwd, error = error))
-        foreground(listOfNotNull(ftpUrl, httpUrl).joinToString("  ·  "))
+        baseText = listOfNotNull(ftpUrl, httpUrl).joinToString("  ·  ")
+        foreground(baseText)
+        handler.postDelayed(ticker, 1000)
     }
 
     private fun stopAll() {
+        handler.removeCallbacks(ticker)
         ftp?.stop(); ftp = null
         http?.stop(); http = null
         try { wifiLock?.release() } catch (_: Exception) { }
@@ -170,22 +184,71 @@ class NetService : Service() {
         super.onDestroy()
     }
 
-    private fun foreground(text: String) {
+    private fun notification(title: String, text: String, progress: Int? = null, indeterminate: Boolean = false): Notification {
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(NotificationChannel(CHANNEL, "Accesso da rete", NotificationManager.IMPORTANCE_LOW))
         val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
         val stop = PendingIntent.getService(this, 1, Intent(this, NetService::class.java).setAction(ACTION_STOP), PendingIntent.FLAG_IMMUTABLE)
-        val n = Notification.Builder(this, CHANNEL)
+        val b = Notification.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_net)
-            .setContentTitle("Accesso da rete attivo")
+            .setContentTitle(title)
             .setContentText(text)
+            .setStyle(Notification.BigTextStyle().bigText(text))
             .setContentIntent(open)
             .setOngoing(true)
+            .setOnlyAlertOnce(true)
             .addAction(Notification.Action.Builder(null, "Arresta", stop).build())
-            .build()
+        if (progress != null || indeterminate) b.setProgress(100, progress ?: 0, indeterminate)
+        return b.build()
+    }
+
+    private fun foreground(text: String) {
+        val n = notification("Accesso da rete attivo", text)
         if (Build.VERSION.SDK_INT >= 34) startForeground(ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
         else startForeground(ID, n)
     }
+
+    private fun updateNotification() {
+        val binary = AppSettings.get(this).binaryUnits
+        val act = Transfers.items.value.filter { it.active }
+        val (title, text, pct, indet) = when {
+            act.isEmpty() -> Quad("Accesso da rete attivo", baseText, null, false)
+            act.size == 1 -> {
+                val t = act[0]
+                Quad(
+                    "${if (t.upload) "In arrivo" else "In uscita"}: ${t.name}",
+                    "${t.proto} · ${t.client}\n${Transfers.summary(t, binary)}",
+                    if (t.fraction >= 0f) (t.fraction * 100).toInt() else null,
+                    t.fraction < 0f
+                )
+            }
+            else -> {
+                val known = act.filter { it.total > 0 }
+                val total = known.sumOf { it.total }
+                val done = known.sumOf { it.done }
+                val speed = act.sumOf { it.speed }
+                val eta = if (speed > 0 && total > 0) (total - done).coerceAtLeast(0) / speed else -1L
+                val line = buildString {
+                    append(com.marco90.mlfilemanager.data.formatSize(act.sumOf { it.done }, binary))
+                    if (total > 0) append(" di ").append(com.marco90.mlfilemanager.data.formatSize(total, binary))
+                    if (speed > 0) append(" · ").append(com.marco90.mlfilemanager.data.formatSize(speed, binary)).append("/s")
+                    if (eta >= 0) append(" · ").append(Transfers.etaText(eta)).append(" rimanenti")
+                }
+                Quad(
+                    "${act.size} trasferimenti in corso",
+                    act.joinToString("\n") { (if (it.upload) "⬇ " else "⬆ ") + it.name } + "\n" + line,
+                    if (total > 0) (done * 100 / total).toInt() else null,
+                    total <= 0
+                )
+            }
+        }
+        val key = "$title|$text|$pct|$indet"
+        if (key == lastShown) return
+        lastShown = key
+        getSystemService(NotificationManager::class.java).notify(ID, notification(title, text, pct, indet))
+    }
+
+    private data class Quad(val a: String, val b: String, val c: Int?, val d: Boolean)
 
     companion object {
         const val ACTION_START = "start"

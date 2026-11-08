@@ -198,15 +198,17 @@ class FtpServer(
                     if (f == null || !f.isFile) { reply("550 File non trovato"); return true }
                     reply("150 Invio di ${f.name}")
                     val data = openData() ?: run { reply("425 Impossibile aprire la connessione dati"); return true }
+                    val h = Transfers.begin(f.name, "FTP", false, ctrl.inetAddress?.hostAddress ?: "?", (f.length() - rest).coerceAtLeast(0))
                     try {
                         data.use { s ->
                             FileInputStream(f).use { input ->
                                 if (rest > 0) input.skip(rest)
-                                input.copyTo(s.getOutputStream(), 256 * 1024)
+                                input.copyTo(Transfers.CountingOutput(s.getOutputStream(), h), 256 * 1024)
                             }
                         }
+                        h.end(true)
                         reply("226 Trasferimento completato")
-                    } catch (e: IOException) { reply("426 Trasferimento interrotto") }
+                    } catch (e: IOException) { h.end(false); reply("426 Trasferimento interrotto") }
                     rest = 0
                 }
                 "STOR", "APPE" -> {
@@ -214,22 +216,25 @@ class FtpServer(
                     val f = resolve(arg) ?: run { reply("550 Percorso non valido"); return true }
                     reply("150 Ricezione di ${f.name}")
                     val data = openData() ?: run { reply("425 Impossibile aprire la connessione dati"); return true }
+                    // La dimensione di un file in arrivo via FTP non è nota: si mostrano byte ricevuti e velocità
+                    val h = Transfers.begin(f.name, "FTP", true, ctrl.inetAddress?.hostAddress ?: "?", -1)
                     try {
-                        data.use { s ->
+                        data.use { sock ->
+                            val input = Transfers.CountingInput(sock.getInputStream(), h, -1)
                             if (rest > 0 && cmd == "STOR") {
                                 RandomAccessFile(f, "rw").use { raf ->
                                     raf.seek(rest)
                                     val buf = ByteArray(256 * 1024)
-                                    val input = s.getInputStream()
                                     while (true) { val r = input.read(buf); if (r < 0) break; raf.write(buf, 0, r) }
                                 }
                             } else {
-                                FileOutputStream(f, cmd == "APPE").use { out -> s.getInputStream().copyTo(out, 256 * 1024) }
+                                FileOutputStream(f, cmd == "APPE").use { out -> input.copyTo(out, 256 * 1024) }
                             }
                         }
+                        h.end(true)
                         Net.scan(f)
                         reply("226 Trasferimento completato")
-                    } catch (e: IOException) { reply("426 Trasferimento interrotto") }
+                    } catch (e: IOException) { h.end(false); reply("426 Trasferimento interrotto") }
                     rest = 0
                 }
                 "DELE" -> {
