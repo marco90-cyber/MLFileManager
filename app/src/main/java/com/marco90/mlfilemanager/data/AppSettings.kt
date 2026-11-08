@@ -26,6 +26,7 @@ class AppSettings private constructor(ctx: Context) {
 
     // Accesso da rete
     var netPort by int("net_port", 6235)
+    var netUser by str("net_user", "mlapps")
     var netPassword by str("net_password", "0000")
     var netRandomPassword by bool("net_random_password", false)
     var netShowHidden by bool("net_show_hidden", false)

@@ -90,7 +90,7 @@ fun SettingsScreen(nav: Nav) {
         }
 
         MLGroup("Cestino") {
-            MLSwitchRow("Usa il cestino", "I file eliminati si possono recuperare", s.useTrash, icon = Icons.Outlined.Delete) { s.useTrash = it }
+            MLSwitchRow("Usa il cestino", if (s.useTrash) "I file eliminati vanno nel cestino e si possono recuperare" else "Disattivato: i file eliminati vengono cancellati subito e non si possono recuperare", s.useTrash, icon = Icons.Outlined.Delete) { s.useTrash = it }
             MLSwitchRow("Chiedi conferma prima di eliminare", null, s.confirmDelete, icon = Icons.Outlined.Check) { s.confirmDelete = it }
             MLNavRow("Apri il cestino", null, icon = Icons.Outlined.Delete) { nav.push(Screen.Trash) }
         }

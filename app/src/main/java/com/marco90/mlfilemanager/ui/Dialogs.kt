@@ -84,6 +84,11 @@ fun DeleteDialog(items: List<FileItem>, useTrash: Boolean, onDismiss: () -> Unit
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(if (trash) "Spostare $what nel cestino?" else "Eliminare definitivamente $what?")
+                if (!trash) Text(
+                    "Verrà cancellato subito e non si potrà recuperare.",
+                    style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                    color = androidx.compose.material3.MaterialTheme.colorScheme.error
+                )
                 Row(
                     Modifier.fillMaxWidth().clickable { trash = !trash },
                     verticalAlignment = Alignment.CenterVertically

@@ -16,6 +16,7 @@ import java.util.Locale
 class HttpServer(
     port: Int,
     private val root: File,
+    private val userName: String,
     private val password: String,
     private val showHidden: Boolean,
     private val readOnly: Boolean,
@@ -27,7 +28,7 @@ class HttpServer(
 
     override fun serve(session: IHTTPSession): Response {
         if (!authorized(session)) {
-            return newFixedLengthResponse(Response.Status.UNAUTHORIZED, "text/plain", "Password richiesta").apply {
+            return newFixedLengthResponse(Response.Status.UNAUTHORIZED, "text/plain", "Nome utente e password richiesti").apply {
                 addHeader("WWW-Authenticate", "Basic realm=\"MLFileManager\", charset=\"UTF-8\"")
             }
         }
@@ -49,7 +50,7 @@ class HttpServer(
         val h = s.headers["authorization"] ?: return false
         if (!h.startsWith("Basic ")) return false
         val decoded = try { String(Base64.decode(h.removePrefix("Basic ").trim(), Base64.DEFAULT), Charsets.UTF_8) } catch (_: Exception) { return false }
-        return decoded.substringAfter(':') == password
+        return decoded.substringBefore(':').trim().equals(userName, ignoreCase = true) && decoded.substringAfter(':') == password
     }
 
     private fun param(s: IHTTPSession, name: String): String? = s.parameters[name]?.firstOrNull()

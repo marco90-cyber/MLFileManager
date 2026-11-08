@@ -24,11 +24,12 @@ import kotlin.concurrent.thread
 
 /**
  * Piccolo server FTP (modalità passiva e attiva), radice = memoria principale.
- * Accetta qualsiasi nome utente con la password scelta.
+ * Accesso con il nome utente e la password scelti nell'app.
  */
 class FtpServer(
     private val root: File,
     private val port: Int,
+    private val userName: String,
     private val password: String,
     private val showHidden: Boolean,
     private val readOnly: Boolean,
@@ -101,8 +102,8 @@ class FtpServer(
             when (cmd) {
                 "USER" -> { user = arg; authed = false; reply("331 Inserisci la password") ; return true }
                 "PASS" -> {
-                    if (arg == password) { authed = true; reply("230 Accesso eseguito") }
-                    else reply("530 Password errata")
+                    if (user.orEmpty().trim().equals(userName, ignoreCase = true) && arg == password) { authed = true; reply("230 Accesso eseguito") }
+                    else reply("530 Nome utente o password errati")
                     return true
                 }
                 "QUIT" -> { reply("221 Arrivederci"); return false }

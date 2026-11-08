@@ -45,6 +45,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -62,7 +63,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.marco.mltheme.MLDependent
+import com.marco.mltheme.LocalPrefEnabled
 import com.marco.mltheme.MLGroup
 import com.marco.mltheme.MLSwitchRow
 import com.marco90.mlfilemanager.data.AppSettings
@@ -120,10 +121,20 @@ fun NetworkScreen(nav: Nav) {
                 if (st.running) {
                     st.ftpUrl?.let { Address("FTP", it) }
                     st.httpUrl?.let { Address("BROWSER", it) }
+                    Credential("Nome utente", st.user)
+                    Credential("Password", st.password)
                     Text(
-                        "Sul PC apri l'indirizzo in Esplora file, FileZilla o nel browser. Nome utente: qualsiasi · Password: ${st.password}",
+                        "Sul PC apri l'indirizzo in Esplora file, FileZilla o nel browser e accedi con questi dati.",
                         style = MaterialTheme.typography.bodySmall, color = fg.copy(alpha = .85f)
                     )
+                    Button(
+                        onClick = { Net.stop(ctx) },
+                        colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = cs.error, contentColor = cs.onError),
+                        modifier = Modifier.fillMaxWidth().height(52.dp)
+                    ) {
+                        Icon(Icons.Outlined.Stop, null)
+                        Text("Arresta il servizio", modifier = Modifier.padding(start = 10.dp), fontWeight = FontWeight.SemiBold)
+                    }
                 } else {
                     Text(
                         "Avvia il servizio per accedere ai file da un altro dispositivo sulla stessa rete Wi-Fi o sull'hotspot del telefono.",
@@ -133,35 +144,39 @@ fun NetworkScreen(nav: Nav) {
                 st.error?.let { Text(it, color = cs.error, style = MaterialTheme.typography.bodySmall) }
             }
 
-            MLDependent(enabled = !st.running) {
+            // Con il servizio attivo le voci restano visibili (in grigio) ma non si cambiano;
+            // la pagina si può sempre scorrere fino in fondo.
+            val editable = !st.running
+            CompositionLocalProvider(LocalPrefEnabled provides editable) {
                 MLGroup("Server") {
-                    MLSwitchRow("Server FTP", "Per Esplora file, FileZilla, VLC", s.netFtp, icon = Icons.Outlined.Devices) { s.netFtp = it }
-                    MLSwitchRow("Accesso da browser", "Scarica e carica file da Chrome · porta ${s.netPort + 1}", s.netHttp, icon = Icons.Outlined.Language) { s.netHttp = it }
-                    FieldRow("Porta", s.netPort.toString(), KeyboardType.Number) { v ->
+                    MLSwitchRow("Server FTP", "Per Esplora file, FileZilla, VLC", s.netFtp, icon = Icons.Outlined.Devices) { if (editable) s.netFtp = it }
+                    MLSwitchRow("Accesso da browser", "Scarica e carica file da Chrome · porta ${s.netPort + 1}", s.netHttp, icon = Icons.Outlined.Language) { if (editable) s.netHttp = it }
+                    FieldRow("Porta", s.netPort.toString(), KeyboardType.Number, editable) { v ->
                         v.toIntOrNull()?.takeIf { it in 1024..65534 }?.let { s.netPort = it }
                     }
-                    if (!s.netRandomPassword) FieldRow("Password", s.netPassword, KeyboardType.Text) { v -> if (v.isNotEmpty()) s.netPassword = v }
-                    MLSwitchRow("Password casuale", "Nuova password a ogni avvio", s.netRandomPassword, icon = Icons.Outlined.Lock) { s.netRandomPassword = it }
+                    FieldRow("Nome utente", s.netUser, KeyboardType.Text, editable) { v -> if (v.isNotBlank()) s.netUser = v.trim() }
+                    if (!s.netRandomPassword) FieldRow("Password", s.netPassword, KeyboardType.Text, editable) { v -> if (v.isNotEmpty()) s.netPassword = v }
+                    MLSwitchRow("Password casuale", "Nuova password a ogni avvio", s.netRandomPassword, icon = Icons.Outlined.Lock) { if (editable) s.netRandomPassword = it }
                 }
-            }
-            MLDependent(enabled = !st.running) {
                 MLGroup("Opzioni") {
-                    MLSwitchRow("Mostra file nascosti", null, s.netShowHidden, icon = Icons.Outlined.Visibility) { s.netShowHidden = it }
-                    MLSwitchRow("Sola lettura", "Gli altri possono solo scaricare", s.netReadOnly, icon = Icons.Outlined.Lock) { s.netReadOnly = it }
+                    MLSwitchRow("Mostra file nascosti", null, s.netShowHidden, icon = Icons.Outlined.Visibility) { if (editable) s.netShowHidden = it }
+                    MLSwitchRow("Sola lettura", "Gli altri possono solo scaricare", s.netReadOnly, icon = Icons.Outlined.Lock) { if (editable) s.netReadOnly = it }
                 }
             }
             if (st.running) Text(
-                "Per cambiare le opzioni ferma prima il servizio",
+                "Per cambiare le opzioni arresta prima il servizio",
                 style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant, textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth()
             )
 
             Button(
                 onClick = { if (st.running) Net.stop(ctx) else start() },
+                colors = if (st.running) androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = cs.error, contentColor = cs.onError)
+                else androidx.compose.material3.ButtonDefaults.buttonColors(),
                 modifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth().height(56.dp)
             ) {
                 Icon(if (st.running) Icons.Outlined.Stop else Icons.Outlined.PlayArrow, null)
-                Text(if (st.running) "Ferma il servizio" else "Avvia il servizio", modifier = Modifier.padding(start = 10.dp), fontWeight = FontWeight.SemiBold)
+                Text(if (st.running) "Arresta il servizio" else "Avvia il servizio", modifier = Modifier.padding(start = 10.dp), fontWeight = FontWeight.SemiBold)
             }
         }
     }
@@ -188,21 +203,42 @@ private fun Address(label: String, url: String) {
 }
 
 @Composable
-private fun FieldRow(label: String, value: String, type: KeyboardType, onChange: (String) -> Unit) {
+private fun FieldRow(label: String, value: String, type: KeyboardType, enabled: Boolean = true, onChange: (String) -> Unit) {
     val cs = MaterialTheme.colorScheme
     var text by remember(value) { mutableStateOf(value) }
     Row(
         Modifier.fillMaxWidth().background(cs.surfaceContainer).padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+        Text(label, style = MaterialTheme.typography.bodyLarge, color = if (enabled) cs.onSurface else cs.onSurface.copy(alpha = .38f), modifier = Modifier.weight(1f))
         OutlinedTextField(
             value = text,
             onValueChange = { text = it; onChange(it) },
             singleLine = true,
+            enabled = enabled,
             keyboardOptions = KeyboardOptions(keyboardType = type),
             shape = RoundedCornerShape(12.dp),
             modifier = Modifier.width(130.dp)
         )
+    }
+}
+
+@Composable
+private fun Credential(label: String, value: String) {
+    val ctx = LocalContext.current
+    val cs = MaterialTheme.colorScheme
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(cs.surface)
+            .clickable {
+                ctx.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText(label, value))
+                Toast.makeText(ctx, "$label copiato", Toast.LENGTH_SHORT).show()
+            }
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text(label.uppercase(), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = cs.primary, modifier = Modifier.width(96.dp))
+        Text(value, style = MaterialTheme.typography.bodyLarge, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+        Icon(Icons.Outlined.ContentCopy, "Copia", tint = cs.primary, modifier = Modifier.size(20.dp))
     }
 }

@@ -30,6 +30,7 @@ data class NetStatus(
     val running: Boolean = false,
     val ftpUrl: String? = null,
     val httpUrl: String? = null,
+    val user: String = "",
     val password: String = "",
     val clients: Int = 0,
     val error: String? = null,
@@ -120,6 +121,7 @@ class NetService : Service() {
     private fun startAll() {
         val s = AppSettings.get(this)
         val pwd = if (s.netRandomPassword) (100000..999999).random().toString() else s.netPassword
+        val user = s.netUser.trim().ifEmpty { "mlapps" }
         val ip = Net.addresses().firstOrNull()?.second
         var ftpUrl: String? = null
         var httpUrl: String? = null
@@ -127,11 +129,11 @@ class NetService : Service() {
 
         foreground("Avvio…")
         if (s.netFtp) try {
-            ftp = FtpServer(ROOT, s.netPort, pwd, s.netShowHidden, s.netReadOnly) { n -> Net.update { it.copy(clients = n) } }.also { it.start() }
+            ftp = FtpServer(ROOT, s.netPort, user, pwd, s.netShowHidden, s.netReadOnly) { n -> Net.update { it.copy(clients = n) } }.also { it.start() }
             ftpUrl = "ftp://${ip ?: "?"}:${s.netPort}"
         } catch (e: Exception) { error = "FTP: porta ${s.netPort} non disponibile (${e.message})" }
         if (s.netHttp) try {
-            http = HttpServer(s.netPort + 1, ROOT, pwd, s.netShowHidden, s.netReadOnly).also { it.startServer() }
+            http = HttpServer(s.netPort + 1, ROOT, user, pwd, s.netShowHidden, s.netReadOnly).also { it.startServer() }
             httpUrl = "http://${ip ?: "?"}:${s.netPort + 1}"
         } catch (e: Exception) { error = (error?.plus("\n") ?: "") + "Browser: porta ${s.netPort + 1} non disponibile (${e.message})" }
 
@@ -150,7 +152,7 @@ class NetService : Service() {
 
         com.marco90.mlfilemanager.data.AppLog.i("Rete", "Servizio avviato: ${ftpUrl ?: "FTP spento"} · ${httpUrl ?: "browser spento"}")
         if (error != null) com.marco90.mlfilemanager.data.AppLog.w("Rete", error)
-        Net.set(NetStatus(running = true, ftpUrl = ftpUrl, httpUrl = httpUrl, password = pwd, error = error))
+        Net.set(NetStatus(running = true, ftpUrl = ftpUrl, httpUrl = httpUrl, user = user, password = pwd, error = error))
         foreground(listOfNotNull(ftpUrl, httpUrl).joinToString("  ·  "))
     }
 
@@ -179,7 +181,7 @@ class NetService : Service() {
             .setContentText(text)
             .setContentIntent(open)
             .setOngoing(true)
-            .addAction(Notification.Action.Builder(null, "Ferma", stop).build())
+            .addAction(Notification.Action.Builder(null, "Arresta", stop).build())
             .build()
         if (Build.VERSION.SDK_INT >= 34) startForeground(ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
         else startForeground(ID, n)
