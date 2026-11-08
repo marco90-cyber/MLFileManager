@@ -78,6 +78,13 @@ object AppUpdate {
 
     private fun set(s: State) {
         state = s
+        when (s) {
+            is State.UpToDate -> com.marco90.mlfilemanager.data.AppLog.i("Aggiornamenti", "Nessun aggiornamento (installata ${s.installed})")
+            is State.Available -> com.marco90.mlfilemanager.data.AppLog.i("Aggiornamenti", "Nuova versione disponibile: ${s.release.name}")
+            is State.Ready -> com.marco90.mlfilemanager.data.AppLog.i("Aggiornamenti", "Scaricata ${s.release.name}, pronta da installare")
+            is State.Failed -> com.marco90.mlfilemanager.data.AppLog.w("Aggiornamenti", s.message)
+            else -> {}
+        }
         fire()
     }
 
@@ -116,6 +123,22 @@ object AppUpdate {
             is State.Failed -> if (s.release != null) fire() else check(ctx)
             else -> check(ctx)
         }
+    }
+
+    /** Ultima release trovata (anche dal controllo automatico all'avvio). */
+    val latest: Release?
+        get() = when (val s = state) {
+            is State.Available -> s.release
+            is State.Downloading -> s.release
+            is State.Paused -> s.release
+            is State.Ready -> s.release
+            is State.Failed -> s.release
+            else -> null
+        }
+
+    /** Controllo silenzioso all'avvio: non apre la finestra. */
+    fun checkQuietly(ctx: Context) {
+        if (state is State.Idle) check(ctx)
     }
 
     /** Chiude la finestra (non durante il download). */

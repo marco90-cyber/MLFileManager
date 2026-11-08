@@ -70,6 +70,8 @@ sealed interface Screen {
     data object Network : Screen
     data object Settings : Screen
     data object Trash : Screen
+    data object Updates : Screen
+    data object Log : Screen
     data class Images(val paths: List<String>, val index: Int) : Screen
     data class Video(val path: String) : Screen
     data class Audio(val paths: List<String>, val index: Int) : Screen
@@ -79,7 +81,7 @@ sealed interface Screen {
 class Nav(private val stack: MutableList<Screen>) {
     val current: Screen get() = stack.last()
     val depth: Int get() = stack.size
-    fun push(s: Screen) { stack.add(s) }
+    fun push(s: Screen) { com.marco90.mlfilemanager.data.AppLog.d("Nav", "Apro ${s.toString().take(200)}"); stack.add(s) }
     fun pop() { if (stack.size > 1) stack.removeAt(stack.lastIndex) }
     fun replace(s: Screen) { stack[stack.lastIndex] = s }
     fun home() { while (stack.size > 1) stack.removeAt(stack.lastIndex) }
@@ -126,6 +128,8 @@ fun AppRoot() {
                     Screen.Network -> NetworkScreen(nav)
                     Screen.Settings -> SettingsScreen(nav)
                     Screen.Trash -> TrashScreen(nav)
+                    Screen.Updates -> UpdatesScreen(nav)
+                    Screen.Log -> LogScreen(nav)
                     is Screen.Images -> ImageViewerScreen(nav, s.paths, s.index)
                     is Screen.Video -> VideoPlayerScreen(nav, s.path)
                     is Screen.Audio -> AudioPlayerScreen(nav, s.paths, s.index)

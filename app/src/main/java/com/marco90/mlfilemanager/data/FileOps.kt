@@ -70,9 +70,11 @@ object FileOps {
             } catch (e: kotlinx.coroutines.CancellationException) {
                 "Operazione annullata"
             } catch (e: Exception) {
+                AppLog.e("File", "$title non riuscita", e)
                 "Errore: ${e.message ?: e.javaClass.simpleName}"
             }
             _progress.value = null
+            if (msg != null) AppLog.i("File", "$title: $msg")
             _message.value = msg
             _changed.value++
             rescan(ctx)

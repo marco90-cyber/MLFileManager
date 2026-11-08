@@ -136,6 +136,7 @@ class NetService : Service() {
         } catch (e: Exception) { error = (error?.plus("\n") ?: "") + "Browser: porta ${s.netPort + 1} non disponibile (${e.message})" }
 
         if (ftp == null && http == null) {
+            com.marco90.mlfilemanager.data.AppLog.e("Rete", error ?: "Nessun server scelto")
             Net.set(NetStatus(running = false, error = error ?: "Nessun server scelto"))
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
@@ -147,6 +148,8 @@ class NetService : Service() {
         wakeLock = getSystemService(PowerManager::class.java)
             .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MLFileManager:net").apply { acquire(6 * 60 * 60 * 1000L) }
 
+        com.marco90.mlfilemanager.data.AppLog.i("Rete", "Servizio avviato: ${ftpUrl ?: "FTP spento"} · ${httpUrl ?: "browser spento"}")
+        if (error != null) com.marco90.mlfilemanager.data.AppLog.w("Rete", error)
         Net.set(NetStatus(running = true, ftpUrl = ftpUrl, httpUrl = httpUrl, password = pwd, error = error))
         foreground(listOfNotNull(ftpUrl, httpUrl).joinToString("  ·  "))
     }

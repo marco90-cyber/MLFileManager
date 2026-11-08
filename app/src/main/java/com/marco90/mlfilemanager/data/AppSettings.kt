@@ -21,6 +21,8 @@ class AppSettings private constructor(ctx: Context) {
     var sortBy by str("sort_by", "name")          // name | date | size | type
     var sortDesc by bool("sort_desc", false)
     var gridView by bool("grid_view", false)
+    var autoUpdateCheck by bool("auto_update_check", true)
+    var verboseLog by bool("verbose_log", false)
 
     // Accesso da rete
     var netPort by int("net_port", 6235)

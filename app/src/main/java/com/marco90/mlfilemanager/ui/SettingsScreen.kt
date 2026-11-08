@@ -109,9 +109,13 @@ fun SettingsScreen(nav: Nav) {
             }
         }
 
+        MLGroup("Aggiornamenti e debug") {
+            MLNavRow("Aggiornamenti", updateSummary(), icon = Icons.Outlined.SystemUpdate) { nav.push(Screen.Updates) }
+            MLNavRow("Log", "Registro di quello che fa l'app", icon = Icons.Outlined.Terminal) { nav.push(Screen.Log) }
+        }
+
         MLGroup("Info") {
             MLNavRow("MLFileManager", "Versione $version · fa parte delle MLapps", icon = Icons.Outlined.Info, trailing = null) {}
-            MLNavRow("Controlla aggiornamenti", "Dalle Release di GitHub", icon = Icons.Outlined.SystemUpdate) { AppUpdate.open(ctx) }
             MLNavRow("Codice sorgente", "github.com/marco90-cyber/MLFileManager", icon = Icons.Outlined.Code) {
                 ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/marco90-cyber/MLFileManager")))
             }

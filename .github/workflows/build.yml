@@ -23,8 +23,8 @@ jobs:
         with:
           gradle-version: 8.9
 
-      # Se hai aggiunto i Secrets, l'APK viene firmato con la tua chiave
-      # (così gli aggiornamenti si installano sopra la versione precedente).
+      # Firma con la chiave privata di MLFileManager (Secrets della repo).
+      # Senza Secrets usa la chiave di debug e lo scrive nella Release.
       - name: Prepara la chiave di firma
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
@@ -32,20 +32,38 @@ jobs:
           if [ -n "$KEYSTORE_BASE64" ]; then
             echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
             echo "KEYSTORE_FILE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
-            echo "Chiave di firma trovata"
+            echo "SIGN_NOTE=Firmato con la chiave privata di MLFileManager." >> "$GITHUB_ENV"
+            echo "Firma: chiave privata"
           else
-            echo "Nessuna chiave nei Secrets: uso la chiave di debug"
+            echo "::warning::Secrets della firma assenti: APK firmato con la chiave di debug"
+            echo "SIGN_NOTE=ATTENZIONE: firmato con la chiave di debug (Secrets assenti)." >> "$GITHUB_ENV"
           fi
 
       - name: Compila l'APK
+        shell: bash
         env:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: gradle :app:assembleRelease --no-daemon --stacktrace
+        run: |
+          set +e
+          gradle :app:assembleRelease --no-daemon --stacktrace 2>&1 | tee out_build.txt
+          st=${PIPESTATUS[0]}
+          if [ $st -ne 0 ]; then
+            grep -E "^e: |error:|What went wrong|FAILED|Execution failed" out_build.txt | head -25 | while IFS= read -r l; do echo "::error::${l:0:400}"; done
+          fi
+          exit $st
 
       - name: Rinomina l'APK
         run: cp app/build/outputs/apk/release/app-release.apk MLFileManager.apk
+
+      - name: Verifica la firma
+        shell: bash
+        run: |
+          SIGNER=$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)apksigner
+          "$SIGNER" verify --print-certs MLFileManager.apk | tee signer.txt
+          SHA=$(grep -m1 "SHA-256 digest" signer.txt | sed 's/.*: //')
+          echo "CERT_SHA256=$SHA" >> "$GITHUB_ENV"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -58,7 +76,25 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="v1.0.${{ github.run_number }}"
+          MSG=$(git log -1 --pretty=%B | grep -v -E "^(Co-Authored-By|Claude-Session):" | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}')
+          printf '%s\n\n%s\nCertificato SHA-256: %s\n' "$MSG" "$SIGN_NOTE" "$CERT_SHA256" > notes.txt
           gh release create "$TAG" MLFileManager.apk \
             --title "MLFileManager $TAG" \
-            --notes "Build automatica del commit ${GITHUB_SHA::7}" \
+            --notes-file notes.txt \
             --latest
+
+      - name: Salva il log degli errori nel ramo ci-log (solo se la build fallisce)
+        if: failure()
+        shell: bash
+        run: |
+          mkdir -p /tmp/cilog
+          [ -f out_build.txt ] && cp out_build.txt /tmp/cilog/
+          [ -f out_build.txt ] && grep -nE "^e: |error:|What went wrong|FAILED|Could not|not found|Execution failed" out_build.txt | head -200 > /tmp/cilog/errori.txt || true
+          cd /tmp/cilog
+          git init -q
+          git config user.name "ci"
+          git config user.email "ci@users.noreply.github.com"
+          git checkout -q -b ci-log
+          git add -A
+          git commit -q -m "Log della build ${{ github.run_number }} (${{ github.sha }})"
+          git push -q -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" ci-log
