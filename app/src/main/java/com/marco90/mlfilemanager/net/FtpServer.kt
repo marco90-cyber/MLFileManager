@@ -82,7 +82,7 @@ class FtpServer(
             onClients(clients.incrementAndGet())
             try {
                 ctrl.soTimeout = 15 * 60 * 1000
-                reply("220 MLFileManager FTP pronto")
+                reply("220 MLFileManager FTP ready")
                 while (running) {
                     val line = reader.readLine() ?: break
                     val cmd = line.substringBefore(' ').uppercase(Locale.ROOT)
@@ -100,32 +100,32 @@ class FtpServer(
         /** false = chiudi la sessione. */
         private fun handle(cmd: String, arg: String): Boolean {
             when (cmd) {
-                "USER" -> { user = arg; authed = false; reply("331 Inserisci la password") ; return true }
+                "USER" -> { user = arg; authed = false; reply("331 Please specify the password") ; return true }
                 "PASS" -> {
-                    if (user.orEmpty().trim().equals(userName, ignoreCase = true) && arg == password) { authed = true; reply("230 Accesso eseguito") }
-                    else reply("530 Nome utente o password errati")
+                    if (user.orEmpty().trim().equals(userName, ignoreCase = true) && arg == password) { authed = true; reply("230 Login successful") }
+                    else reply("530 Login incorrect")
                     return true
                 }
-                "QUIT" -> { reply("221 Arrivederci"); return false }
+                "QUIT" -> { reply("221 Goodbye"); return false }
                 "SYST" -> { reply("215 UNIX Type: L8"); return true }
                 "FEAT" -> {
-                    reply("211-Funzioni:\r\n UTF8\r\n MLSD\r\n MLST type*;size*;modify*;\r\n SIZE\r\n MDTM\r\n EPSV\r\n PASV\r\n REST STREAM\r\n211 Fine")
+                    reply("211-Features:\r\n UTF8\r\n MLSD\r\n MLST type*;size*;modify*;\r\n SIZE\r\n MDTM\r\n EPSV\r\n PASV\r\n REST STREAM\r\n211 End")
                     return true
                 }
                 "OPTS" -> { reply("200 OK"); return true }
                 "NOOP" -> { reply("200 OK"); return true }
             }
-            if (!authed) { reply("530 Accedi prima con USER e PASS"); return true }
+            if (!authed) { reply("530 Please login with USER and PASS"); return true }
             when (cmd) {
                 "PWD", "XPWD" -> reply("257 \"${cwd.replace("\"", "\"\"")}\"")
                 "CWD", "XCWD" -> {
                     val f = resolve(arg)
-                    if (f != null && f.isDirectory) { cwd = virtual(f); reply("250 Cartella: $cwd") } else reply("550 Cartella non trovata")
+                    if (f != null && f.isDirectory) { cwd = virtual(f); reply("250 Directory successfully changed") } else reply("550 Failed to change directory")
                 }
                 "CDUP", "XCUP" -> {
                     val f = resolve("..")
                     if (f != null) cwd = virtual(f)
-                    reply("250 Cartella: $cwd")
+                    reply("250 Directory successfully changed")
                 }
                 "TYPE", "MODE", "STRU" -> reply("200 OK")
                 "PASV" -> {
@@ -135,18 +135,18 @@ class FtpServer(
                     active = null
                     val ip = localIpv4()
                     val p = ss.localPort
-                    reply("227 Modalità passiva (${ip.replace('.', ',')},${p / 256},${p % 256})")
+                    reply("227 Entering Passive Mode (${ip.replace('.', ',')},${p / 256},${p % 256})")
                 }
                 "EPSV" -> {
                     pasv?.close()
                     val ss = ServerSocket(0)
                     pasv = ss
                     active = null
-                    reply("229 Modalità passiva estesa (|||${ss.localPort}|)")
+                    reply("229 Entering Extended Passive Mode (|||${ss.localPort}|)")
                 }
                 "PORT" -> {
                     val n = arg.split(',').mapNotNull { it.trim().toIntOrNull() }
-                    if (n.size != 6) { reply("501 Parametri errati"); return true }
+                    if (n.size != 6) { reply("501 Syntax error in parameters"); return true }
                     active = InetSocketAddress("${n[0]}.${n[1]}.${n[2]}.${n[3]}", n[4] * 256 + n[5])
                     pasv?.close(); pasv = null
                     reply("200 OK")
@@ -154,7 +154,7 @@ class FtpServer(
                 "EPRT" -> {
                     val d = arg.firstOrNull()?.toString() ?: "|"
                     val parts = arg.split(d)
-                    if (parts.size < 4) { reply("501 Parametri errati"); return true }
+                    if (parts.size < 4) { reply("501 Syntax error in parameters"); return true }
                     active = InetSocketAddress(parts[2], parts[3].toIntOrNull() ?: 0)
                     pasv?.close(); pasv = null
                     reply("200 OK")
@@ -162,7 +162,7 @@ class FtpServer(
                 "LIST", "NLST", "MLSD" -> {
                     val path = arg.split(' ').filterNot { it.startsWith("-") }.joinToString(" ")
                     val dir = if (path.isBlank()) resolve(".") else resolve(path)
-                    if (dir == null || !dir.exists()) { reply("550 Non trovato"); return true }
+                    if (dir == null || !dir.exists()) { reply("550 File not found"); return true }
                     val files = if (dir.isDirectory) (dir.listFiles() ?: emptyArray()).filter { showHidden || !it.name.startsWith(".") } else listOf(dir)
                     val text = buildString {
                         for (f in files) {
@@ -174,30 +174,30 @@ class FtpServer(
                             append("\r\n")
                         }
                     }
-                    reply("150 Invio elenco")
-                    val data = openData() ?: run { reply("425 Impossibile aprire la connessione dati"); return true }
+                    reply("150 Here comes the directory listing")
+                    val data = openData() ?: run { reply("425 Can't open data connection"); return true }
                     data.use { it.getOutputStream().write(text.toByteArray(Charsets.UTF_8)) }
-                    reply("226 Fatto")
+                    reply("226 Directory send OK")
                 }
                 "MLST" -> {
                     val f = if (arg.isBlank()) resolve(".") else resolve(arg)
-                    if (f == null || !f.exists()) reply("550 Non trovato")
-                    else reply("250-Informazioni\r\n ${facts(f)} ${virtual(f)}\r\n250 Fine")
+                    if (f == null || !f.exists()) reply("550 File not found")
+                    else reply("250-Listing\r\n ${facts(f)} ${virtual(f)}\r\n250 End")
                 }
                 "SIZE" -> {
                     val f = resolve(arg)
-                    if (f != null && f.isFile) reply("213 ${f.length()}") else reply("550 Non trovato")
+                    if (f != null && f.isFile) reply("213 ${f.length()}") else reply("550 File not found")
                 }
                 "MDTM" -> {
                     val f = resolve(arg)
-                    if (f != null && f.exists()) reply("213 ${stamp(f.lastModified())}") else reply("550 Non trovato")
+                    if (f != null && f.exists()) reply("213 ${stamp(f.lastModified())}") else reply("550 File not found")
                 }
-                "REST" -> { rest = arg.toLongOrNull() ?: 0L; reply("350 Ripresa da $rest") }
+                "REST" -> { rest = arg.toLongOrNull() ?: 0L; reply("350 Restart position accepted ($rest)") }
                 "RETR" -> {
                     val f = resolve(arg)
-                    if (f == null || !f.isFile) { reply("550 File non trovato"); return true }
-                    reply("150 Invio di ${f.name}")
-                    val data = openData() ?: run { reply("425 Impossibile aprire la connessione dati"); return true }
+                    if (f == null || !f.isFile) { reply("550 Failed to open file"); return true }
+                    reply("150 Opening data connection for ${f.name}")
+                    val data = openData() ?: run { reply("425 Can't open data connection"); return true }
                     val h = Transfers.begin(f.name, "FTP", false, ctrl.inetAddress?.hostAddress ?: "?", (f.length() - rest).coerceAtLeast(0))
                     try {
                         data.use { s ->
@@ -207,15 +207,15 @@ class FtpServer(
                             }
                         }
                         h.end(true)
-                        reply("226 Trasferimento completato")
-                    } catch (e: IOException) { h.end(false); reply("426 Trasferimento interrotto") }
+                        reply("226 Transfer complete")
+                    } catch (e: IOException) { h.end(false); reply("426 Connection closed; transfer aborted") }
                     rest = 0
                 }
                 "STOR", "APPE" -> {
-                    if (readOnly) { reply("550 Sola lettura"); return true }
-                    val f = resolve(arg) ?: run { reply("550 Percorso non valido"); return true }
-                    reply("150 Ricezione di ${f.name}")
-                    val data = openData() ?: run { reply("425 Impossibile aprire la connessione dati"); return true }
+                    if (readOnly) { reply("550 Permission denied (read-only)"); return true }
+                    val f = resolve(arg) ?: run { reply("550 Invalid path"); return true }
+                    reply("150 Ok to send data")
+                    val data = openData() ?: run { reply("425 Can't open data connection"); return true }
                     // La dimensione di un file in arrivo via FTP non è nota: si mostrano byte ricevuti e velocità
                     val h = Transfers.begin(f.name, "FTP", true, ctrl.inetAddress?.hostAddress ?: "?", -1)
                     try {
@@ -233,39 +233,39 @@ class FtpServer(
                         }
                         h.end(true)
                         Net.scan(f)
-                        reply("226 Trasferimento completato")
-                    } catch (e: IOException) { h.end(false); reply("426 Trasferimento interrotto") }
+                        reply("226 Transfer complete")
+                    } catch (e: IOException) { h.end(false); reply("426 Connection closed; transfer aborted") }
                     rest = 0
                 }
                 "DELE" -> {
-                    if (readOnly) { reply("550 Sola lettura"); return true }
+                    if (readOnly) { reply("550 Permission denied (read-only)"); return true }
                     val f = resolve(arg)
-                    if (f != null && f.isFile && f.delete()) { Net.scan(f); reply("250 Eliminato") } else reply("550 Impossibile eliminare")
+                    if (f != null && f.isFile && f.delete()) { Net.scan(f); reply("250 Delete operation successful") } else reply("550 Delete operation failed")
                 }
                 "MKD", "XMKD" -> {
-                    if (readOnly) { reply("550 Sola lettura"); return true }
+                    if (readOnly) { reply("550 Permission denied (read-only)"); return true }
                     val f = resolve(arg)
-                    if (f != null && f.mkdirs()) reply("257 \"${virtual(f)}\" creata") else reply("550 Impossibile creare")
+                    if (f != null && f.mkdirs()) reply("257 \"${virtual(f)}\" created") else reply("550 Create directory operation failed")
                 }
                 "RMD", "XRMD" -> {
-                    if (readOnly) { reply("550 Sola lettura"); return true }
+                    if (readOnly) { reply("550 Permission denied (read-only)"); return true }
                     val f = resolve(arg)
-                    if (f != null && f.isDirectory && f.deleteRecursively()) reply("250 Eliminata") else reply("550 Impossibile eliminare")
+                    if (f != null && f.isDirectory && f.deleteRecursively()) reply("250 Remove directory operation successful") else reply("550 Delete operation failed")
                 }
                 "RNFR" -> {
-                    if (readOnly) { reply("550 Sola lettura"); return true }
+                    if (readOnly) { reply("550 Permission denied (read-only)"); return true }
                     val f = resolve(arg)
-                    if (f != null && f.exists()) { renameFrom = f; reply("350 Pronto per il nuovo nome") } else reply("550 Non trovato")
+                    if (f != null && f.exists()) { renameFrom = f; reply("350 Ready for RNTO") } else reply("550 File not found")
                 }
                 "RNTO" -> {
                     val from = renameFrom
                     val to = resolve(arg)
                     renameFrom = null
-                    if (from != null && to != null && from.renameTo(to)) { Net.scan(from); Net.scan(to); reply("250 Rinominato") } else reply("550 Impossibile rinominare")
+                    if (from != null && to != null && from.renameTo(to)) { Net.scan(from); Net.scan(to); reply("250 Rename successful") } else reply("550 Rename failed")
                 }
                 "ABOR" -> reply("226 OK")
-                "SITE", "ALLO" -> reply("202 Non necessario")
-                else -> reply("502 Comando non supportato")
+                "SITE", "ALLO" -> reply("202 Command not implemented, superfluous")
+                else -> reply("502 Command not implemented")
             }
             return true
         }

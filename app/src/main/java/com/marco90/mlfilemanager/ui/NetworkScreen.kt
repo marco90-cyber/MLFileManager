@@ -125,10 +125,11 @@ fun NetworkScreen(nav: Nav) {
                 if (st.running) {
                     st.ftpUrl?.let { Address("FTP", it) }
                     st.httpUrl?.let { Address("BROWSER", it) }
+                    st.ftpUrl?.let { Address("WINDOWS", it.replace("ftp://", "ftp://${st.user}@")) }
                     Credential("Nome utente", st.user)
                     Credential("Password", st.password)
                     Text(
-                        "Sul PC apri l'indirizzo in Esplora file, FileZilla o nel browser e accedi con questi dati.",
+                        "Su Windows scrivi l'indirizzo completo (con ftp:// e la porta) nella barra di Esplora file, poi inserisci la password. Nel browser usa l'indirizzo BROWSER.",
                         style = MaterialTheme.typography.bodySmall, color = fg.copy(alpha = .85f)
                     )
                     Button(
