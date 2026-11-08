@@ -114,32 +114,33 @@ fun NetworkScreen(nav: Nav) {
                             tint = if (st.running) cs.onPrimary else cs.onSurfaceVariant
                         )
                     }
-                    Column {
+                    Column(Modifier.weight(1f)) {
                         Text(if (st.running) "Servizio attivo" else "Servizio spento", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = fg)
                         Text(
                             if (st.running && st.clients > 0) "$label · ${st.clients} collegati" else label,
                             style = MaterialTheme.typography.bodyMedium, color = fg.copy(alpha = .8f)
                         )
                     }
+                    Button(
+                        onClick = { if (st.running) Net.stop(ctx) else start() },
+                        colors = if (st.running) androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = cs.error, contentColor = cs.onError)
+                        else androidx.compose.material3.ButtonDefaults.buttonColors(),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp),
+                        modifier = Modifier.height(44.dp)
+                    ) {
+                        Icon(if (st.running) Icons.Outlined.Stop else Icons.Outlined.PlayArrow, null, modifier = Modifier.size(20.dp))
+                        Text(if (st.running) "Arresta" else "Avvia", modifier = Modifier.padding(start = 6.dp), fontWeight = FontWeight.SemiBold)
+                    }
                 }
                 if (st.running) {
                     st.ftpUrl?.let { Address("FTP", it) }
                     st.httpUrl?.let { Address("BROWSER", it) }
-                    st.ftpUrl?.let { Address("WINDOWS", it.replace("ftp://", "ftp://${st.user}@")) }
                     Credential("Nome utente", st.user)
                     Credential("Password", st.password)
                     Text(
-                        "Su Windows scrivi l'indirizzo completo (con ftp:// e la porta) nella barra di Esplora file, poi inserisci la password. Nel browser usa l'indirizzo BROWSER.",
+                        "Su Windows scrivi in Esplora file l'indirizzo FTP completo (con ftp:// e la porta) e accedi con nome utente e password. Nel browser usa l'indirizzo BROWSER.",
                         style = MaterialTheme.typography.bodySmall, color = fg.copy(alpha = .85f)
                     )
-                    Button(
-                        onClick = { Net.stop(ctx) },
-                        colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = cs.error, contentColor = cs.onError),
-                        modifier = Modifier.fillMaxWidth().height(52.dp)
-                    ) {
-                        Icon(Icons.Outlined.Stop, null)
-                        Text("Arresta il servizio", modifier = Modifier.padding(start = 10.dp), fontWeight = FontWeight.SemiBold)
-                    }
                 } else {
                     Text(
                         "Avvia il servizio per accedere ai file da un altro dispositivo sulla stessa rete Wi-Fi o sull'hotspot del telefono.",
@@ -176,15 +177,6 @@ fun NetworkScreen(nav: Nav) {
                 modifier = Modifier.fillMaxWidth()
             )
 
-            Button(
-                onClick = { if (st.running) Net.stop(ctx) else start() },
-                colors = if (st.running) androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = cs.error, contentColor = cs.onError)
-                else androidx.compose.material3.ButtonDefaults.buttonColors(),
-                modifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth().height(56.dp)
-            ) {
-                Icon(if (st.running) Icons.Outlined.Stop else Icons.Outlined.PlayArrow, null)
-                Text(if (st.running) "Arresta il servizio" else "Avvia il servizio", modifier = Modifier.padding(start = 10.dp), fontWeight = FontWeight.SemiBold)
-            }
         }
     }
 }
