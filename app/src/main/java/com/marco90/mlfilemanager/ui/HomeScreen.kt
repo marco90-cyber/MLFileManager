@@ -197,6 +197,8 @@ fun HomeScreen(nav: Nav) {
             Box(Modifier.width(1.dp).height(32.dp).background(cs.outlineVariant))
             MLSwitch(checked = net.running, onCheckedChange = { on -> if (on) Net.start(ctx) else Net.stop(ctx) })
         }
+
+        DevicesSection(nav)
     }
 }
 

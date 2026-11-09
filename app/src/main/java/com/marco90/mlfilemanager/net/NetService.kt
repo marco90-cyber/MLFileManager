@@ -142,6 +142,7 @@ class NetService : Service() {
         if (s.netFtp) try {
             ftp = FtpServer(ROOT, s.netPort, user, pwd, s.netShowHidden, s.netReadOnly) { n -> Net.update { it.copy(clients = n) } }.also { it.start() }
             ftpUrl = "ftp://${ip ?: "?"}:${s.netPort}"
+            Discovery.register(this, s.netPort)
         } catch (e: Exception) { error = "FTP: porta ${s.netPort} non disponibile (${e.message})" }
         if (s.netHttp) try {
             http = HttpServer(s.netPort + 1, ROOT, user, pwd, s.netShowHidden, s.netReadOnly).also { it.startServer() }
@@ -170,6 +171,7 @@ class NetService : Service() {
     }
 
     private fun stopAll() {
+        Discovery.unregister(this)
         handler.removeCallbacks(ticker)
         ftp?.stop(); ftp = null
         http?.stop(); http = null

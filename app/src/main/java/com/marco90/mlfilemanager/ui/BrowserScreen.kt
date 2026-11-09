@@ -318,7 +318,12 @@ fun BrowserScreen(nav: Nav, source: Source) {
         }
 
         // ---------- Barre in basso ----------
-        Column(Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(horizontal = 12.dp, vertical = 12.dp)) {
+        val remoteClip = com.marco90.mlfilemanager.net.RemoteClip.value
+        Column(
+            Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(horizontal = 12.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Box(Modifier.padding(horizontal = 0.dp)) { TransfersCard(s.binaryUnits, onlyActive = true) }
             when {
                 selecting -> ActionBar(
                     onCopy = { FileOps.clipboard = Clipboard(selItems.map { it.file }, cut = false); selected.clear() },
@@ -331,12 +336,13 @@ fun BrowserScreen(nav: Nav, source: Source) {
                         else { FileOps.delete(ctx, selItems.map { it.file }, s.useTrash); selected.clear() }
                     },
                 )
+                remoteClip != null && source is Source.Folder -> RemotePasteBar(remoteClip, source.dir)
                 clip != null && source is Source.Folder -> PasteBar(clip,
                     onCancel = { FileOps.clipboard = null },
                     onPaste = { FileOps.paste(ctx, source.dir) })
             }
         }
-        if (source is Source.Folder && !selecting && clip == null && !searching && source.dir.canWrite()) {
+        if (source is Source.Folder && !selecting && clip == null && remoteClip == null && !searching && source.dir.canWrite()) {
             Box(Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(16.dp)) {
                 FloatingActionButton(onClick = { fabMenu = true }, containerColor = cs.primaryContainer) { Icon(Icons.Outlined.Add, "Nuovo") }
                 DropdownMenu(expanded = fabMenu, onDismissRequest = { fabMenu = false }) {

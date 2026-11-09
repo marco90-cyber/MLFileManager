@@ -72,6 +72,7 @@ sealed interface Screen {
     data object Trash : Screen
     data object Updates : Screen
     data object Log : Screen
+    data class Remote(val device: com.marco90.mlfilemanager.net.RemoteDevice) : Screen
     data class Images(val paths: List<String>, val index: Int) : Screen
     data class Video(val path: String) : Screen
     data class Audio(val paths: List<String>, val index: Int) : Screen
@@ -130,6 +131,7 @@ fun AppRoot() {
                     Screen.Trash -> TrashScreen(nav)
                     Screen.Updates -> UpdatesScreen(nav)
                     Screen.Log -> LogScreen(nav)
+                    is Screen.Remote -> RemoteScreen(nav, s.device)
                     is Screen.Images -> ImageViewerScreen(nav, s.paths, s.index)
                     is Screen.Video -> VideoPlayerScreen(nav, s.path)
                     is Screen.Audio -> AudioPlayerScreen(nav, s.paths, s.index)

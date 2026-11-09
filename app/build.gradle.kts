@@ -90,6 +90,9 @@ dependencies {
     // Accesso da browser (server HTTP)
     implementation("org.nanohttpd:nanohttpd:2.3.1")
 
+    // Client FTP per aprire gli altri dispositivi in rete
+    implementation("commons-net:commons-net:3.11.1")
+
     // Serve solo per il tema XML Material3 della finestra
     implementation("com.google.android.material:material:1.12.0")
 }

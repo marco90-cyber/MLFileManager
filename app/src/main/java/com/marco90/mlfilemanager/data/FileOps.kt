@@ -54,6 +54,7 @@ object FileOps {
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message
     fun clearMessage() { _message.value = null }
+    fun post(msg: String) { _message.value = msg }
 
     var clipboard by mutableStateOf<Clipboard?>(null)
 

@@ -243,8 +243,9 @@ private fun Credential(label: String, value: String) {
 }
 
 @Composable
-private fun TransfersCard(binary: Boolean) {
-    val items by com.marco90.mlfilemanager.net.Transfers.items.collectAsStateWithLifecycle()
+internal fun TransfersCard(binary: Boolean, onlyActive: Boolean = false) {
+    val all by com.marco90.mlfilemanager.net.Transfers.items.collectAsStateWithLifecycle()
+    val items = if (onlyActive) all.filter { it.active } else all
     if (items.isEmpty()) return
     val cs = MaterialTheme.colorScheme
     val active = items.filter { it.active }

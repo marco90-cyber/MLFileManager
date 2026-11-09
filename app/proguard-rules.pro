@@ -5,3 +5,5 @@
 -dontwarn fi.iki.elonen.**
 -dontwarn org.slf4j.**
 -keepattributes SourceFile,LineNumberTable,*Annotation*
+-keep class org.apache.commons.net.** { *; }
+-dontwarn org.apache.commons.net.**
