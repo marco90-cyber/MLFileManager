@@ -246,6 +246,53 @@ object FileOps {
         "Creato «${target.name}»"
     }
 
+    /**
+     * Condividi: i file vanno così come sono, ogni cartella viene prima compressa in uno ZIP
+     * (nella cache dell'app) e poi condivisa.
+     */
+    fun share(ctx: Context, items: List<File>) {
+        val dirs = items.filter { it.isDirectory }
+        if (dirs.isEmpty()) { shareFiles(ctx, items); return }
+        val app = ctx.applicationContext
+        launchOp(ctx, "Preparazione per la condivisione") {
+            val out = File(app.cacheDir, "share").apply { deleteRecursively(); mkdirs() }
+            val (bytes, count) = measure(dirs)
+            var done = 0L
+            var n = 0
+            val zips = dirs.map { dir ->
+                val target = uniqueFile(out, dir.name + ".zip")
+                ZipOutputStream(FileOutputStream(target).buffered()).use { zos ->
+                    val buf = ByteArray(256 * 1024)
+                    val base = dir.parentFile ?: dir
+                    dir.walkTopDown().forEach { f ->
+                        if (!coroutineContext.isActive) throw kotlinx.coroutines.CancellationException()
+                        val rel = f.absolutePath.removePrefix(base.absolutePath).trimStart('/')
+                        if (f.isDirectory) {
+                            zos.putNextEntry(ZipEntry("$rel/").apply { time = f.lastModified() }); zos.closeEntry()
+                        } else {
+                            zos.putNextEntry(ZipEntry(rel).apply { time = f.lastModified() })
+                            FileInputStream(f).use { input ->
+                                while (true) {
+                                    val r = input.read(buf)
+                                    if (r < 0) break
+                                    zos.write(buf, 0, r)
+                                    done += r
+                                    _progress.value = OpProgress("Preparazione per la condivisione", f.name, done, bytes, n, count)
+                                }
+                            }
+                            zos.closeEntry()
+                            n++
+                        }
+                    }
+                }
+                target
+            }
+            val all = items.filter { it.isFile } + zips
+            kotlinx.coroutines.withContext(Dispatchers.Main) { shareFiles(app, all) }
+            null
+        }
+    }
+
     fun unzip(ctx: Context, zip: File, dest: File) = launchOp(ctx, "Estrazione") {
         if (extOf(zip.name) !in setOf("zip", "jar", "apk")) return@launchOp "Per ora si possono estrarre solo i file ZIP"
         if (!dest.exists()) dest.mkdirs()

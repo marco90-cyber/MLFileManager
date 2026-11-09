@@ -100,7 +100,6 @@ import com.marco90.mlfilemanager.data.formatSize
 import com.marco90.mlfilemanager.data.itemsLabel
 import com.marco90.mlfilemanager.data.listFolder
 import com.marco90.mlfilemanager.data.openExternal
-import com.marco90.mlfilemanager.data.shareFiles
 import com.marco90.mlfilemanager.data.sortItems
 import com.marco90.mlfilemanager.data.uniqueFile
 import kotlinx.coroutines.Dispatchers
@@ -197,8 +196,11 @@ fun BrowserScreen(nav: Nav, source: Source) {
                         Box {
                             IconButton(onClick = { menu = true }) { Icon(Icons.Outlined.MoreVert, "Altre opzioni") }
                             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                                MenuItem(
+                                    if (selItems.any { it.isDir }) "Condividi (cartelle in ZIP)" else "Condividi",
+                                    Icons.Outlined.Share
+                                ) { menu = false; FileOps.share(ctx, selItems.map { it.file }); selected.clear() }
                                 if (selItems.size == 1) {
-                                    MenuItem("Rinomina", Icons.Outlined.DriveFileRenameOutline) { menu = false; dialog = Dlg.Rename(selItems[0]) }
                                     if (!selItems[0].isDir) MenuItem("Apri con", Icons.Outlined.OpenInNew) { menu = false; openExternal(ctx, selItems[0].file); selected.clear() }
                                     if (selItems[0].kind == Kind.ARCHIVE) MenuItem("Estrai", Icons.Outlined.Unarchive) { menu = false; dialog = Dlg.Archive(selItems[0]) }
                                 }
@@ -321,7 +323,8 @@ fun BrowserScreen(nav: Nav, source: Source) {
                 selecting -> ActionBar(
                     onCopy = { FileOps.clipboard = Clipboard(selItems.map { it.file }, cut = false); selected.clear() },
                     onCut = { FileOps.clipboard = Clipboard(selItems.map { it.file }, cut = true); selected.clear() },
-                    onShare = { shareFiles(ctx, selItems.map { it.file }) },
+                    canRename = selItems.size == 1,
+                    onRename = { if (selItems.size == 1) dialog = Dlg.Rename(selItems[0]) },
                     onZip = { dialog = Dlg.Zip(selItems) },
                     onDelete = {
                         if (s.confirmDelete) dialog = Dlg.Delete(selItems)
@@ -471,7 +474,7 @@ fun FileRow(
 }
 
 @Composable
-private fun ActionBar(onCopy: () -> Unit, onCut: () -> Unit, onShare: () -> Unit, onZip: () -> Unit, onDelete: () -> Unit) {
+private fun ActionBar(onCopy: () -> Unit, onCut: () -> Unit, canRename: Boolean, onRename: () -> Unit, onZip: () -> Unit, onDelete: () -> Unit) {
     val cs = MaterialTheme.colorScheme
     Row(
         Modifier.fillMaxWidth().height(72.dp).shadow(8.dp, RoundedCornerShape(28.dp)).clip(RoundedCornerShape(28.dp))
@@ -480,21 +483,23 @@ private fun ActionBar(onCopy: () -> Unit, onCut: () -> Unit, onShare: () -> Unit
     ) {
         BarAction("Copia", Icons.Outlined.ContentCopy, onCopy)
         BarAction("Taglia", Icons.Outlined.ContentCut, onCut)
-        BarAction("Condividi", Icons.Outlined.Share, onShare)
+        BarAction("Rinomina", Icons.Outlined.DriveFileRenameOutline, onRename, enabled = canRename)
         BarAction("Comprimi", Icons.Outlined.FolderZip, onZip)
         BarAction("Elimina", Icons.Outlined.Delete, onDelete)
     }
 }
 
 @Composable
-private fun androidx.compose.foundation.layout.RowScope.BarAction(label: String, icon: ImageVector, onClick: () -> Unit) {
+private fun androidx.compose.foundation.layout.RowScope.BarAction(label: String, icon: ImageVector, onClick: () -> Unit, enabled: Boolean = true) {
+    // Rinomina vale per un solo elemento: con più elementi selezionati resta in grigio
+    val color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = .38f)
     Column(
-        Modifier.weight(1f).clip(RoundedCornerShape(20.dp)).combinedClickableCompat(onClick).padding(vertical = 8.dp),
+        Modifier.weight(1f).clip(RoundedCornerShape(20.dp)).then(if (enabled) Modifier.combinedClickableCompat(onClick) else Modifier).padding(vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        Icon(icon, null)
-        Text(label, style = MaterialTheme.typography.labelMedium)
+        Icon(icon, null, tint = color)
+        Text(label, style = MaterialTheme.typography.labelMedium, color = color)
     }
 }
 
