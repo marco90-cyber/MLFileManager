@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Versione a tinta unita per le icone a tema di Android -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:scaleX="0.4"
+        android:scaleY="0.4"
+        android:translateX="14"
+        android:translateY="13.2">
+        <path android:fillColor="#FFFFFFFF" android:fillAlpha="0.45" android:pathData="M70,44 h80 a12,12 0 0 1 12,12 v8 h-84 l-10,-10 h-10 a12,12 0 0 1 12,-10 z" />
+        <path android:fillColor="#FFFFFFFF" android:fillAlpha="0.7" android:pathData="M60,58 h88 a12,12 0 0 1 12,12 v8 h-74 l-10,-8 h-28 a12,12 0 0 1 12,-12 z" />
+        <path android:fillColor="#FFFFFFFF" android:fillType="evenOdd" android:pathData="M48,70 h28 l10,10 h66 a12,12 0 0 1 12,12 v54 a12,12 0 0 1 -12,12 H48 a12,12 0 0 1 -12,-12 V82 a12,12 0 0 1 12,-12 z M56,140 V92 h11 l12,24 12,-24 h11 v48 h-10 v-29 l-10,20 h-6 l-10,-20 v29 z M112,92 h10 v39 h22 v9 h-32 z" />
+    </group>
+</vector>
