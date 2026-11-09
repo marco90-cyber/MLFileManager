@@ -106,11 +106,16 @@ import java.io.File
 fun DevicesSection(nav: Nav) {
     val ctx = LocalContext.current
     val cs = MaterialTheme.colorScheme
-    DisposableEffect(Unit) {
-        Discovery.start(ctx)
-        onDispose { Discovery.stop() }
+    val settings = AppSettings.get(ctx)
+    val net by com.marco90.mlfilemanager.net.Net.status.collectAsStateWithLifecycle()
+    // La ricerca gira solo se è accesa e se l'Accesso da rete di questo telefono è spento
+    val searching = settings.discoverDevices && !net.running
+    DisposableEffect(searching) {
+        if (searching) Discovery.start(ctx)
+        onDispose { if (searching) Discovery.stop() }
     }
-    val found by Discovery.devices.collectAsStateWithLifecycle()
+    val foundNow by Discovery.devices.collectAsStateWithLifecycle()
+    val found = if (searching) foundNow else emptyList()
     var savedTick by remember { mutableStateOf(0) }
     val saved = remember(savedTick, found) { DeviceStore.saved(ctx).map { it.device } }
     // Trovati ora + salvati non trovati (in grigio)
@@ -118,9 +123,32 @@ fun DevicesSection(nav: Nav) {
     var login by remember { mutableStateOf<RemoteDevice?>(null) }
     var forget by remember { mutableStateOf<RemoteDevice?>(null) }
 
-    SectionTitle("Dispositivi in rete")
+    Row(Modifier.fillMaxWidth().padding(end = 20.dp), verticalAlignment = Alignment.CenterVertically) {
+        SectionTitle("Dispositivi in rete", Modifier.weight(1f))
+        Text(
+            if (searching) "Ricerca attiva" else "Ricerca spenta",
+            style = MaterialTheme.typography.labelMedium, color = cs.onSurfaceVariant,
+            modifier = Modifier.padding(top = 10.dp, end = 10.dp)
+        )
+        Box(Modifier.padding(top = 10.dp)) {
+            com.marco.mltheme.MLSwitch(checked = settings.discoverDevices, onCheckedChange = { settings.discoverDevices = it })
+        }
+    }
     Column(Modifier.padding(horizontal = 16.dp).clip(RoundedCornerShape(24.dp)), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        if (all.isEmpty()) {
+        if (!searching) {
+            Row(
+                Modifier.fillMaxWidth().background(cs.surfaceContainer).padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                ToneIcon(Icons.Outlined.WifiFind, Tones.slate, 44.dp, 16.dp, 24.dp)
+                Text(
+                    if (settings.discoverDevices && net.running) "Ricerca in pausa: l'Accesso da rete di questo telefono è attivo"
+                    else "Accendi la ricerca per trovare gli altri dispositivi sulla stessa Wi-Fi",
+                    style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant, modifier = Modifier.weight(1f)
+                )
+            }
+        } else if (all.isEmpty()) {
             Row(
                 Modifier.fillMaxWidth().background(cs.surfaceContainer).padding(horizontal = 16.dp, vertical = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,

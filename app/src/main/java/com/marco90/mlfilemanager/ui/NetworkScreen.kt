@@ -157,8 +157,8 @@ fun NetworkScreen(nav: Nav) {
             val editable = !st.running
             CompositionLocalProvider(LocalPrefEnabled provides editable) {
                 MLGroup("Server") {
-                    MLSwitchRow("Server FTP", "Per Esplora file, FileZilla, VLC", s.netFtp, icon = Icons.Outlined.Devices) { if (editable) s.netFtp = it }
-                    MLSwitchRow("Accesso da browser", "Scarica e carica file da Chrome · porta ${s.netPort + 1}", s.netHttp, icon = Icons.Outlined.Language) { if (editable) s.netHttp = it }
+                    MLSwitchRow("Server FTP", "Per Esplora file, FileZilla, VLC", s.netFtp, icon = Icons.Outlined.Devices) { if (editable) { s.netFtp = it; s.netHttp = !it } }
+                    MLSwitchRow("Accesso da browser", "Scarica e carica file da Chrome · porta ${s.netPort + 1}", s.netHttp, icon = Icons.Outlined.Language) { if (editable) { s.netHttp = it; s.netFtp = !it } }
                     FieldRow("Porta", s.netPort.toString(), KeyboardType.Number, editable) { v ->
                         v.toIntOrNull()?.takeIf { it in 1024..65534 }?.let { s.netPort = it }
                     }

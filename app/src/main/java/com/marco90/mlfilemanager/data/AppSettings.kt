@@ -31,8 +31,10 @@ class AppSettings private constructor(ctx: Context) {
     var netRandomPassword by bool("net_random_password", false)
     var netShowHidden by bool("net_show_hidden", false)
     var netReadOnly by bool("net_read_only", false)
+    // FTP e browser sono alternativi: si sceglie uno dei due
     var netFtp by bool("net_ftp", true)
-    var netHttp by bool("net_http", true)
+    var netHttp by bool("net_http_only", false)
+    var discoverDevices by bool("discover_devices", false)
 
     private fun bool(key: String, def: Boolean) = Pref(p.getBoolean(key, def)) { p.edit().putBoolean(key, it).apply() }
     private fun str(key: String, def: String) = Pref(p.getString(key, def) ?: def) { p.edit().putString(key, it).apply() }
