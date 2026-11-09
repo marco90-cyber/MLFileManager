@@ -124,7 +124,7 @@ fun HomeScreen(nav: Nav) {
         // Scheda della memoria
         val st = storage
         Column(
-            Modifier.padding(horizontal = 16.dp).fillMaxWidth().clip(RoundedCornerShape(28.dp)).background(cs.primaryContainer)
+            Modifier.padding(horizontal = 16.dp).fillMaxWidth().clip(RoundedCornerShape(28.dp)).background(cs.surfaceContainer)
                 .clickable { nav.openFolder(ROOT) }.padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
@@ -133,19 +133,19 @@ fun HomeScreen(nav: Nav) {
                     Icon(Icons.Outlined.Storage, null, tint = cs.onPrimary)
                 }
                 Column(Modifier.weight(1f)) {
-                    Text("Memoria principale", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = cs.onPrimaryContainer)
+                    Text("Memoria principale", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = cs.onSurface)
                     Text(
                         if (st != null) "${formatSize(st.used, s.binaryUnits)} usati di ${formatSize(st.total, s.binaryUnits)}" else "Calcolo…",
-                        style = MaterialTheme.typography.bodyMedium, color = cs.onPrimaryContainer.copy(alpha = .8f)
+                        style = MaterialTheme.typography.bodyMedium, color = cs.onSurface.copy(alpha = .8f)
                     )
                 }
-                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = cs.onPrimaryContainer)
+                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = cs.onSurface)
             }
             UsageBar(st, stats)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     if (st != null) "Usato al ${st.percent}% · ${formatSize(st.free, s.binaryUnits)} liberi" else "",
-                    style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, color = cs.onPrimaryContainer,
+                    style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, color = cs.onSurface,
                     modifier = Modifier.weight(1f)
                 )
                 Button(onClick = { nav.push(Screen.Analysis) }, contentPadding = ButtonDefaults.TextButtonContentPadding) {
