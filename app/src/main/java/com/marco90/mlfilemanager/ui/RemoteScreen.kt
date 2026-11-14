@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
@@ -123,32 +124,30 @@ fun DevicesSection(nav: Nav) {
     var login by remember { mutableStateOf<RemoteDevice?>(null) }
     var forget by remember { mutableStateOf<RemoteDevice?>(null) }
 
-    Row(Modifier.fillMaxWidth().padding(end = 20.dp), verticalAlignment = Alignment.CenterVertically) {
-        SectionTitle("Dispositivi in rete", Modifier.weight(1f))
-        Text(
-            if (searching) "Ricerca attiva" else "Ricerca spenta",
-            style = MaterialTheme.typography.labelMedium, color = cs.onSurfaceVariant,
-            modifier = Modifier.padding(top = 10.dp, end = 10.dp)
-        )
-        Box(Modifier.padding(top = 10.dp)) {
-            com.marco.mltheme.MLSwitch(checked = settings.discoverDevices, onCheckedChange = { settings.discoverDevices = it })
-        }
-    }
+    SectionTitle("Dispositivi in rete")
     Column(Modifier.padding(horizontal = 16.dp).clip(RoundedCornerShape(24.dp)), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        if (!searching) {
-            Row(
-                Modifier.fillMaxWidth().background(cs.surfaceContainer).padding(horizontal = 16.dp, vertical = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                ToneIcon(Icons.Outlined.WifiFind, Tones.slate, 44.dp, 16.dp, 24.dp)
+        // Interruttore della ricerca dentro la scheda, come "Accesso da rete"
+        Row(
+            Modifier.fillMaxWidth().background(cs.surfaceContainer).padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            ToneIcon(Icons.Outlined.WifiFind, if (searching) Tones.teal else Tones.slate, 44.dp, 16.dp, 24.dp)
+            Column(Modifier.weight(1f)) {
+                Text("Cerca dispositivi", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
                 Text(
-                    if (settings.discoverDevices && net.running) "Ricerca in pausa: l'Accesso da rete di questo telefono è attivo"
-                    else "Accendi la ricerca per trovare gli altri dispositivi sulla stessa Wi-Fi",
-                    style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant, modifier = Modifier.weight(1f)
+                    when {
+                        searching -> "Ricerca attiva sulla stessa Wi-Fi"
+                        settings.discoverDevices && net.running -> "In pausa: l'Accesso da rete di questo telefono è attivo"
+                        else -> "Trova gli altri dispositivi sulla stessa Wi-Fi"
+                    },
+                    style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant
                 )
             }
-        } else if (all.isEmpty()) {
+            Box(Modifier.width(1.dp).height(32.dp).background(cs.outlineVariant))
+            com.marco.mltheme.MLSwitch(checked = settings.discoverDevices, onCheckedChange = { settings.discoverDevices = it })
+        }
+        if (searching && all.isEmpty()) {
             Row(
                 Modifier.fillMaxWidth().background(cs.surfaceContainer).padding(horizontal = 16.dp, vertical = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
