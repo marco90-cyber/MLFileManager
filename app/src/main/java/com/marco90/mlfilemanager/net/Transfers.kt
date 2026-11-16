@@ -4,6 +4,8 @@ import com.marco90.mlfilemanager.data.AppLog
 import com.marco90.mlfilemanager.data.formatSize
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.FilterInputStream
 import java.io.FilterOutputStream
 import java.io.InputStream
@@ -151,12 +153,17 @@ object Transfers {
         return size + sp + eta
     }
 
-    /** Elenco in JSON per la pagina web. */
+    /** Elenco in JSON per la pagina web (org.json fa l'escape di virgolette, a capo e caratteri speciali). */
     fun json(): String {
-        fun esc(s: String) = s.replace("\\", "\\\\").replace("\"", "\\\"")
-        return _items.value.joinToString(",", "[", "]") {
-            "{\"name\":\"${esc(it.name)}\",\"proto\":\"${it.proto}\",\"up\":${it.upload},\"client\":\"${esc(it.client)}\"," +
-                "\"total\":${it.total},\"done\":${it.done},\"speed\":${it.speed},\"eta\":${it.eta},\"active\":${it.active},\"ok\":${it.ok}}"
+        val arr = JSONArray()
+        for (t in _items.value) {
+            arr.put(
+                JSONObject()
+                    .put("name", t.name).put("proto", t.proto).put("up", t.upload).put("client", t.client)
+                    .put("total", t.total).put("done", t.done).put("speed", t.speed).put("eta", t.eta)
+                    .put("active", t.active).put("ok", t.ok)
+            )
         }
+        return arr.toString()
     }
 }

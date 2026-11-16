@@ -1,12 +1,16 @@
 package com.marco90.mlfilemanager.net
 
 import android.util.Base64
+import com.marco90.mlfilemanager.data.COPY_BUFFER
 import com.marco90.mlfilemanager.data.formatSize
+import com.marco90.mlfilemanager.data.invalidName
 import com.marco90.mlfilemanager.data.mimeOf
+import com.marco90.mlfilemanager.data.resolveInside
+import com.marco90.mlfilemanager.data.uniqueFile
+import com.marco90.mlfilemanager.data.virtualPath
 import fi.iki.elonen.NanoHTTPD
 import java.io.File
 import java.io.FileInputStream
-import java.io.IOException
 import java.net.URLEncoder
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -59,20 +63,8 @@ class HttpServer(
 
     private fun param(s: IHTTPSession, name: String): String? = s.parameters[name]?.firstOrNull()
 
-    private fun resolve(vpath: String): File? {
-        val parts = ArrayList<String>()
-        vpath.split('/').forEach { seg ->
-            when (seg) {
-                "", "." -> {}
-                ".." -> if (parts.isNotEmpty()) parts.removeAt(parts.lastIndex)
-                else -> parts += seg
-            }
-        }
-        val f = File(root, parts.joinToString("/"))
-        return try { if (f.canonicalPath.startsWith(rootCanon)) f else null } catch (_: IOException) { null }
-    }
-
-    private fun vpath(f: File): String = f.absolutePath.removePrefix(root.absolutePath).ifEmpty { "/" }
+    private fun resolve(vpath: String): File? = resolveInside(root, rootCanon, vpath)
+    private fun vpath(f: File): String = virtualPath(root, f)
     private fun enc(s: String) = URLEncoder.encode(s, "UTF-8").replace("+", "%20")
     private fun esc(s: String) = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")
 
@@ -94,16 +86,12 @@ class HttpServer(
         val files = HashMap<String, String>()
         s.parseBody(files)
         val tmp = files["file"] ?: return newFixedLengthResponse(Response.Status.BAD_REQUEST, "text/plain", "Nessun file")
-        val name = (s.parameters["file"]?.firstOrNull() ?: "file").substringAfterLast('/').substringAfterLast('\\')
-        var target = File(dir, name)
-        var i = 1
-        while (target.exists()) {
-            val base = name.substringBeforeLast('.', name)
-            val ext = if (name.contains('.')) "." + name.substringAfterLast('.') else ""
-            target = File(dir, "$base ($i)$ext"); i++
-        }
-        File(tmp).copyTo(target)
-        File(tmp).delete()
+        val name = cleanName(s.parameters["file"]?.firstOrNull())
+            ?: return newFixedLengthResponse(Response.Status.BAD_REQUEST, "text/plain", "Nome non valido")
+        val target = uniqueFile(dir, name)
+        // Il file temporaneo di NanoHTTPD sta già sul telefono: si sposta invece di copiarlo se possibile
+        val t = File(tmp)
+        if (!t.renameTo(target)) { t.copyTo(target); t.delete() }
         Net.scan(target)
         return newFixedLengthResponse(Response.Status.OK, "text/plain", "OK")
     }
@@ -117,16 +105,16 @@ class HttpServer(
         if (s.method != Method.POST && s.method != Method.PUT) return newFixedLengthResponse(Response.Status.METHOD_NOT_ALLOWED, "text/plain", "Usa POST")
         val dir = resolve(param(s, "path") ?: "/")
         if (dir == null || !dir.isDirectory) return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "Cartella non trovata")
-        val name = (param(s, "name") ?: "file").substringAfterLast('/').substringAfterLast('\\').trim().ifEmpty { "file" }
-        if (name.any { it in ":*?\"<>|" }) return newFixedLengthResponse(Response.Status.BAD_REQUEST, "text/plain", "Nome non valido")
+        val name = cleanName(param(s, "name"))
+            ?: return newFixedLengthResponse(Response.Status.BAD_REQUEST, "text/plain", "Nome non valido")
         val len = s.headers["content-length"]?.toLongOrNull() ?: return newFixedLengthResponse(Response.Status.BAD_REQUEST, "text/plain", "Dimensione mancante")
-        val target = com.marco90.mlfilemanager.data.uniqueFile(dir, name)
+        val target = uniqueFile(dir, name)
         val part = File(dir, ".${target.name}.part")
         val h = Transfers.begin(target.name, "Browser", true, s.remoteIpAddress ?: "?", len)
         try {
             val input = s.inputStream
             java.io.FileOutputStream(part).use { out ->
-                val buf = ByteArray(256 * 1024)
+                val buf = ByteArray(COPY_BUFFER)
                 var left = len
                 while (left > 0) {
                     val r = input.read(buf, 0, minOf(buf.size.toLong(), left).toInt())
@@ -153,7 +141,7 @@ class HttpServer(
         s.parseBody(HashMap())
         val dir = resolve(param(s, "path") ?: "/")
         val name = param(s, "name")?.trim().orEmpty()
-        if (dir == null || name.isEmpty() || name.any { it in "\\/:*?\"<>|" }) return newFixedLengthResponse(Response.Status.BAD_REQUEST, "text/plain", "Nome non valido")
+        if (dir == null || invalidName(name) != null) return newFixedLengthResponse(Response.Status.BAD_REQUEST, "text/plain", "Nome non valido")
         return if (File(dir, name).mkdirs()) newFixedLengthResponse(Response.Status.OK, "text/plain", "OK")
         else newFixedLengthResponse(Response.Status.CONFLICT, "text/plain", "Impossibile creare")
     }
@@ -267,6 +255,12 @@ async function mk(){const n=prompt('Nome della nuova cartella');if(!n)return;con
 async function del(p){if(!confirm('Eliminare definitivamente?'))return;const r=await fetch('/delete',{method:'POST',body:new URLSearchParams({path:p})});if(!r.ok)alert(await r.text());location.reload()}
 </script></body></html>"""
         return newFixedLengthResponse(Response.Status.OK, "text/html; charset=utf-8", html)
+    }
+
+    /** Nome di file arrivato dal browser: senza cartelle davanti e senza caratteri non ammessi. */
+    private fun cleanName(raw: String?): String? {
+        val n = (raw ?: "file").substringAfterLast('/').substringAfterLast('\\').trim().ifEmpty { "file" }
+        return n.takeIf { invalidName(it) == null && it != "." && it != ".." }
     }
 
     private fun jsString(s: String) = "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"").replace("<", "\\u003c") + "\""

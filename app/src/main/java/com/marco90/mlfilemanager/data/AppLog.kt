@@ -28,18 +28,41 @@ object AppLog {
     var revision by mutableIntStateOf(0)
         private set
 
-    fun init(context: Context) {
-        val f = File(context.filesDir, "mlfilemanager.log")
+    /** File aperto una volta sola (prima veniva riaperto e richiuso a ogni riga). */
+    private var writer: java.io.Writer? = null
+    private var initialized = false
+
+    /**
+     * Da chiamare all'avvio: le chiamate successive (es. finestra ricreata) non fanno nulla,
+     * così il gestore dei crash non viene concatenato più volte.
+     */
+    @Synchronized
+    fun init(context: Context, verbose: Boolean) {
+        this.verbose = verbose
+        if (initialized) return
+        initialized = true
+        val f = File(context.applicationContext.filesDir, "mlfilemanager.log")
         file = f
         try {
             if (f.exists() && f.length() > 512 * 1024) f.delete()
         } catch (_: Exception) {
+        }
+        openWriter(append = true)
+        val previous = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, error ->
+            e("Crash", "Errore non gestito in ${thread.name}: ${error.stackTraceToString().take(3000)}")
+            previous?.uncaughtException(thread, error)
         }
         i(
             "App",
             "MLFileManager avviata - Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT}), " +
                 "${Build.MANUFACTURER} ${Build.MODEL}"
         )
+    }
+
+    private fun openWriter(append: Boolean) {
+        try { writer?.close() } catch (_: Exception) { }
+        writer = try { file?.let { java.io.FileWriter(it, append).buffered() } } catch (_: Exception) { null }
     }
 
     fun d(tag: String, msg: String) {
@@ -70,7 +93,7 @@ object AppLog {
                 "MLFileManager/$tag",
                 msg
             )
-            file?.appendText(line + "\n")
+            writer?.apply { write(line); write("\n"); flush() }
         } catch (_: Exception) {
         }
         revision++
@@ -85,10 +108,7 @@ object AppLog {
     @Synchronized
     fun clear() {
         lines.clear()
-        try {
-            file?.writeText("")
-        } catch (_: Exception) {
-        }
+        openWriter(append = false) // svuota il file
         revision++
     }
 

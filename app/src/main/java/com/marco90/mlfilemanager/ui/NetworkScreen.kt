@@ -64,6 +64,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -181,25 +182,32 @@ fun NetworkScreen(nav: Nav) {
     }
 }
 
+/** Riga con etichetta e valore: toccandola il valore viene copiato (indirizzi, nome utente, password). */
 @Composable
-private fun Address(label: String, url: String) {
+private fun CopyRow(label: String, value: String, labelWidth: Dp, toast: String) {
     val ctx = LocalContext.current
     val cs = MaterialTheme.colorScheme
     Row(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(cs.surface)
             .clickable {
-                ctx.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText(label, url))
-                Toast.makeText(ctx, "Indirizzo copiato", Toast.LENGTH_SHORT).show()
+                ctx.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText(label, value))
+                Toast.makeText(ctx, toast, Toast.LENGTH_SHORT).show()
             }
             .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text(label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = cs.primary, modifier = Modifier.width(64.dp))
-        Text(url, style = MaterialTheme.typography.bodyLarge, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+        Text(label.uppercase(), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = cs.primary, modifier = Modifier.width(labelWidth))
+        Text(value, style = MaterialTheme.typography.bodyLarge, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
         Icon(Icons.Outlined.ContentCopy, "Copia", tint = cs.primary, modifier = Modifier.size(20.dp))
     }
 }
+
+@Composable
+private fun Address(label: String, url: String) = CopyRow(label, url, 64.dp, "Indirizzo copiato")
+
+@Composable
+private fun Credential(label: String, value: String) = CopyRow(label, value, 96.dp, "$label copiato")
 
 @Composable
 private fun FieldRow(label: String, value: String, type: KeyboardType, enabled: Boolean = true, onChange: (String) -> Unit) {
@@ -219,26 +227,6 @@ private fun FieldRow(label: String, value: String, type: KeyboardType, enabled: 
             shape = RoundedCornerShape(12.dp),
             modifier = Modifier.width(130.dp)
         )
-    }
-}
-
-@Composable
-private fun Credential(label: String, value: String) {
-    val ctx = LocalContext.current
-    val cs = MaterialTheme.colorScheme
-    Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(cs.surface)
-            .clickable {
-                ctx.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText(label, value))
-                Toast.makeText(ctx, "$label copiato", Toast.LENGTH_SHORT).show()
-            }
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Text(label.uppercase(), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = cs.primary, modifier = Modifier.width(96.dp))
-        Text(value, style = MaterialTheme.typography.bodyLarge, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
-        Icon(Icons.Outlined.ContentCopy, "Copia", tint = cs.primary, modifier = Modifier.size(20.dp))
     }
 }
 

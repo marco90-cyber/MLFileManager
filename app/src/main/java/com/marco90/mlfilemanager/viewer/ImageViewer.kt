@@ -1,7 +1,6 @@
 package com.marco90.mlfilemanager.viewer
 
 import android.app.WallpaperManager
-import android.graphics.BitmapFactory
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -115,9 +114,10 @@ fun ImageViewerScreen(nav: Nav, paths: List<String>, start: Int) {
                 Action(Icons.Outlined.Wallpaper, "Sfondo") {
                     scope.launch {
                         val ok = withContext(Dispatchers.IO) {
+                            // Lo stream lascia ad Android il ridimensionamento: niente foto intera in memoria
+                            // (con foto da 50 MP la versione con Bitmap poteva esaurire la memoria)
                             try {
-                                val bmp = BitmapFactory.decodeFile(current.absolutePath) ?: return@withContext false
-                                WallpaperManager.getInstance(ctx).setBitmap(bmp); true
+                                current.inputStream().use { WallpaperManager.getInstance(ctx).setStream(it) }; true
                             } catch (_: Exception) { false }
                         }
                         Toast.makeText(ctx, if (ok) "Sfondo impostato" else "Impossibile impostare lo sfondo", Toast.LENGTH_SHORT).show()

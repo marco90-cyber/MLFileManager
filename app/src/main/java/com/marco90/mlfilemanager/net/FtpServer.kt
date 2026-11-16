@@ -1,5 +1,8 @@
 package com.marco90.mlfilemanager.net
 
+import com.marco90.mlfilemanager.data.COPY_BUFFER
+import com.marco90.mlfilemanager.data.resolveInside
+import com.marco90.mlfilemanager.data.virtualPath
 import java.io.BufferedReader
 import java.io.BufferedWriter
 import java.io.File
@@ -203,7 +206,7 @@ class FtpServer(
                         data.use { s ->
                             FileInputStream(f).use { input ->
                                 if (rest > 0) input.skip(rest)
-                                input.copyTo(Transfers.CountingOutput(s.getOutputStream(), h), 256 * 1024)
+                                input.copyTo(Transfers.CountingOutput(s.getOutputStream(), h), COPY_BUFFER)
                             }
                         }
                         h.end(true)
@@ -224,11 +227,11 @@ class FtpServer(
                             if (rest > 0 && cmd == "STOR") {
                                 RandomAccessFile(f, "rw").use { raf ->
                                     raf.seek(rest)
-                                    val buf = ByteArray(256 * 1024)
+                                    val buf = ByteArray(COPY_BUFFER)
                                     while (true) { val r = input.read(buf); if (r < 0) break; raf.write(buf, 0, r) }
                                 }
                             } else {
-                                FileOutputStream(f, cmd == "APPE").use { out -> input.copyTo(out, 256 * 1024) }
+                                FileOutputStream(f, cmd == "APPE").use { out -> input.copyTo(out, COPY_BUFFER) }
                             }
                         }
                         h.end(true)
@@ -250,7 +253,7 @@ class FtpServer(
                 "RMD", "XRMD" -> {
                     if (readOnly) { reply("550 Permission denied (read-only)"); return true }
                     val f = resolve(arg)
-                    if (f != null && f.isDirectory && f.deleteRecursively()) reply("250 Remove directory operation successful") else reply("550 Delete operation failed")
+                    if (f != null && f.isDirectory && f.deleteRecursively()) { Net.scan(f); reply("250 Remove directory operation successful") } else reply("550 Delete operation failed")
                 }
                 "RNFR" -> {
                     if (readOnly) { reply("550 Permission denied (read-only)"); return true }
@@ -292,28 +295,20 @@ class FtpServer(
         }
 
         /** Da percorso FTP a file reale, senza poter uscire dalla radice. */
-        private fun resolve(arg: String): File? {
-            val raw = if (arg.startsWith("/")) arg else "$cwd/$arg"
-            val parts = ArrayList<String>()
-            raw.split('/').forEach { seg ->
-                when (seg) {
-                    "", "." -> {}
-                    ".." -> if (parts.isNotEmpty()) parts.removeAt(parts.lastIndex)
-                    else -> parts += seg
-                }
-            }
-            val f = File(root, parts.joinToString("/"))
-            return try { if (f.canonicalPath.startsWith(rootCanon)) f else null } catch (_: IOException) { null }
-        }
+        private fun resolve(arg: String): File? =
+            resolveInside(root, rootCanon, if (arg.startsWith("/")) arg else "$cwd/$arg")
 
-        private fun virtual(f: File): String {
-            val p = f.absolutePath.removePrefix(root.absolutePath)
-            return if (p.isEmpty()) "/" else p
-        }
+        private fun virtual(f: File): String = virtualPath(root, f)
     }
 
-    private fun stamp(ms: Long): String =
-        SimpleDateFormat("yyyyMMddHHmmss", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }.format(Date(ms))
+    /** SimpleDateFormat non è thread-safe: uno per thread (ogni client FTP ha il suo). */
+    private val stampFmt = ThreadLocal.withInitial {
+        SimpleDateFormat("yyyyMMddHHmmss", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
+    }
+    private val lsRecentFmt = ThreadLocal.withInitial { SimpleDateFormat("MMM dd HH:mm", Locale.US) }
+    private val lsOldFmt = ThreadLocal.withInitial { SimpleDateFormat("MMM dd  yyyy", Locale.US) }
+
+    private fun stamp(ms: Long): String = stampFmt.get()!!.format(Date(ms))
 
     private fun facts(f: File): String =
         "type=${if (f.isDirectory) "dir" else "file"};size=${if (f.isDirectory) 0 else f.length()};modify=${stamp(f.lastModified())};"
@@ -322,7 +317,7 @@ class FtpServer(
         val perm = if (f.isDirectory) "drwxr-xr-x" else "-rw-r--r--"
         val sixMonths = 180L * 24 * 3600 * 1000
         val recent = System.currentTimeMillis() - f.lastModified() < sixMonths
-        val date = SimpleDateFormat(if (recent) "MMM dd HH:mm" else "MMM dd  yyyy", Locale.US).format(Date(f.lastModified()))
+        val date = (if (recent) lsRecentFmt else lsOldFmt).get()!!.format(Date(f.lastModified()))
         val size = if (f.isDirectory) 4096 else f.length()
         return String.format(Locale.US, "%s 1 ml ml %13d %s %s", perm, size, date, f.name)
     }

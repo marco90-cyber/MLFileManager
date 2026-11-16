@@ -1,5 +1,6 @@
 package com.marco90.mlfilemanager.ui
 
+import android.os.Environment
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -58,6 +59,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -66,8 +68,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -292,6 +292,7 @@ fun RemoteScreen(nav: Nav, device: RemoteDevice) {
     var error by remember { mutableStateOf<String?>(null) }
     var reload by remember { mutableStateOf(0) }
     val selected = remember { mutableStateListOf<String>() }
+    val selectedSet by remember { derivedStateOf { selected.toHashSet() } }
     var menu by remember { mutableStateOf(false) }
     var newFolder by remember { mutableStateOf(false) }
     var rename by remember { mutableStateOf<RemoteItem?>(null) }
@@ -309,7 +310,7 @@ fun RemoteScreen(nav: Nav, device: RemoteDevice) {
     BackHandler(enabled = selecting || path != "/") {
         if (selecting) selected.clear() else path = RemoteFtp.parent(path)
     }
-    val selItems = items.filter { it.path in selected }
+    val selItems = items.filter { it.path in selectedSet }
 
     fun act(block: suspend () -> Unit) {
         scope.launch {
@@ -357,10 +358,11 @@ fun RemoteScreen(nav: Nav, device: RemoteDevice) {
                     Icon(Icons.Outlined.Home, "Radice", tint = cs.primary, modifier = Modifier.size(18.dp))
                 }
                 var acc = ""
-                path.split('/').filter { it.isNotEmpty() }.forEachIndexed { i, seg ->
+                val segs = path.split('/').filter { it.isNotEmpty() }
+                segs.forEachIndexed { i, seg ->
                     acc += "/$seg"
                     val target = acc
-                    val last = i == path.split('/').count { it.isNotEmpty() } - 1
+                    val last = i == segs.lastIndex
                     Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = cs.onSurfaceVariant, modifier = Modifier.size(16.dp))
                     Text(
                         seg,
@@ -391,7 +393,7 @@ fun RemoteScreen(nav: Nav, device: RemoteDevice) {
                     modifier = Modifier.fillMaxSize()
                 ) {
                     itemsIndexed(items, key = { _, it -> it.path }) { i, it ->
-                        val sel = it.path in selected
+                        val sel = it.path in selectedSet
                         Row(
                             Modifier.fillMaxWidth().clip(groupShape(i, items.size))
                                 .background(if (sel) cs.primaryContainer else cs.surfaceContainer)
@@ -413,7 +415,7 @@ fun RemoteScreen(nav: Nav, device: RemoteDevice) {
                             horizontalArrangement = Arrangement.spacedBy(14.dp)
                         ) {
                             val kind = if (it.isDir) Kind.FOLDER else kindOf(it.name)
-                            if (sel) ToneIcon(Icons.Outlined.SelectAll, Tones.indigo) else ToneIcon(kind.icon(), kind.tone())
+                            if (sel) SelectedMark() else ToneIcon(kind.icon(), kind.tone())
                             Column(Modifier.weight(1f)) {
                                 Text(it.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Text(if (it.isDir) "Cartella" else formatSize(it.size, s.binaryUnits),
@@ -434,38 +436,29 @@ fun RemoteScreen(nav: Nav, device: RemoteDevice) {
             TransfersCard(s.binaryUnits, onlyActive = true)
             Box(Modifier.padding(horizontal = 12.dp)) {
                 when {
-                    selecting -> RemoteActionBar(
-                        canRename = selItems.size == 1,
-                        onCopy = {
-                            RemoteClip.value = RemoteClipData(device, login, selItems)
-                            FileOps.post("Apri una cartella del telefono e tocca «Incolla qui»")
-                            selected.clear()
-                        },
-                        onDownload = {
-                            val dest = File(ROOT, "Download").apply { mkdirs() }
-                            RemoteOps.download(device, login, selItems, dest)
-                            selected.clear()
-                        },
-                        onRename = { rename = selItems.firstOrNull() },
-                        onDelete = { confirmDelete = selItems },
+                    selecting -> SelectionActionBar(
+                        listOf(
+                            BarItem("Copia", Icons.Outlined.ContentCopy) {
+                                RemoteClip.value = RemoteClipData(device, login, selItems)
+                                FileOps.post("Apri una cartella del telefono e tocca «Incolla qui»")
+                                selected.clear()
+                            },
+                            BarItem("Scarica", Icons.Outlined.Download) {
+                                val dest = File(ROOT, Environment.DIRECTORY_DOWNLOADS).apply { mkdirs() }
+                                RemoteOps.download(device, login, selItems, dest)
+                                selected.clear()
+                            },
+                            BarItem("Rinomina", Icons.Outlined.DriveFileRenameOutline, enabled = selItems.size == 1) { rename = selItems.firstOrNull() },
+                            BarItem("Elimina", Icons.Outlined.Delete) { confirmDelete = selItems },
+                        )
                     )
-                    clip != null -> Row(
-                        Modifier.fillMaxWidth().shadow(8.dp, RoundedCornerShape(28.dp)).clip(RoundedCornerShape(28.dp))
-                            .background(cs.inverseSurface).padding(start = 20.dp, end = 8.dp, top = 10.dp, bottom = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            val n = clip.files.size
-                            Text("${if (n == 1) "1 elemento" else "$n elementi"} da inviare", color = cs.inverseOnSurface,
-                                style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Medium)
-                            Text("su ${device.name}", color = cs.inverseOnSurface.copy(alpha = .75f), style = MaterialTheme.typography.bodySmall)
-                        }
-                        TextButton(onClick = { FileOps.clipboard = null }) { Text("Annulla", color = cs.inverseOnSurface) }
-                        Button(onClick = {
+                    clip != null -> PasteBar(
+                        "${countLabel(clip.files.size)} da inviare", "su ${device.name}",
+                        onCancel = { FileOps.clipboard = null },
+                        onPaste = {
                             RemoteOps.upload(device, login, clip.files, path, deleteAfter = clip.cut)
                             FileOps.clipboard = null
-                        }) { Text("Incolla qui") }
-                    }
+                        })
                 }
             }
         }
@@ -500,53 +493,14 @@ fun RemoteScreen(nav: Nav, device: RemoteDevice) {
     }
 }
 
-@Composable
-private fun RemoteActionBar(canRename: Boolean, onCopy: () -> Unit, onDownload: () -> Unit, onRename: () -> Unit, onDelete: () -> Unit) {
-    val cs = MaterialTheme.colorScheme
-    Row(
-        Modifier.fillMaxWidth().height(72.dp).shadow(8.dp, RoundedCornerShape(28.dp)).clip(RoundedCornerShape(28.dp))
-            .background(cs.surfaceContainerHighest).padding(horizontal = 6.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        RemoteBarAction("Copia", Icons.Outlined.ContentCopy, onCopy)
-        RemoteBarAction("Scarica", Icons.Outlined.Download, onDownload)
-        RemoteBarAction("Rinomina", Icons.Outlined.DriveFileRenameOutline, onRename, canRename)
-        RemoteBarAction("Elimina", Icons.Outlined.Delete, onDelete)
-    }
-}
-
-@Composable
-private fun androidx.compose.foundation.layout.RowScope.RemoteBarAction(label: String, icon: ImageVector, onClick: () -> Unit, enabled: Boolean = true) {
-    val color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = .38f)
-    Column(
-        Modifier.weight(1f).clip(RoundedCornerShape(20.dp)).then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier).padding(vertical = 8.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
-        Icon(icon, null, tint = color)
-        Text(label, style = MaterialTheme.typography.labelMedium, color = color)
-    }
-}
-
 /** Barra "Incolla qui" nelle cartelle del telefono per i file copiati da un altro dispositivo. */
 @Composable
 fun RemotePasteBar(data: RemoteClipData, dest: File) {
-    val cs = MaterialTheme.colorScheme
-    Row(
-        Modifier.fillMaxWidth().shadow(8.dp, RoundedCornerShape(28.dp)).clip(RoundedCornerShape(28.dp))
-            .background(cs.inverseSurface).padding(start = 20.dp, end = 8.dp, top = 10.dp, bottom = 10.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(Modifier.weight(1f)) {
-            val n = data.items.size
-            Text("${if (n == 1) "1 elemento" else "$n elementi"} da ${data.device.name}", color = cs.inverseOnSurface,
-                style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text("Scegli la cartella e incolla", color = cs.inverseOnSurface.copy(alpha = .75f), style = MaterialTheme.typography.bodySmall)
-        }
-        TextButton(onClick = { RemoteClip.value = null }) { Text("Annulla", color = cs.inverseOnSurface) }
-        Button(onClick = {
+    PasteBar(
+        "${countLabel(data.items.size)} da ${data.device.name}", "Scegli la cartella e incolla",
+        onCancel = { RemoteClip.value = null },
+        onPaste = {
             RemoteOps.download(data.device, data.login, data.items, dest)
             RemoteClip.value = null
-        }) { Text("Incolla qui") }
-    }
+        })
 }

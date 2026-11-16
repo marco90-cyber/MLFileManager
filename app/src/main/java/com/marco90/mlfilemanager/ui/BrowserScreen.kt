@@ -59,11 +59,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -74,13 +74,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -103,6 +101,8 @@ import com.marco90.mlfilemanager.data.openExternal
 import com.marco90.mlfilemanager.data.sortItems
 import com.marco90.mlfilemanager.data.uniqueFile
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -135,6 +135,8 @@ fun BrowserScreen(nav: Nav, source: Source) {
     var searching by rememberSaveable { mutableStateOf(source is Source.Search) }
     var query by rememberSaveable { mutableStateOf("") }
     val selected = remember { mutableStateListOf<String>() }
+    // Copia in un HashSet per controlli "è selezionato?" istantanei anche con migliaia di file
+    val selectedSet by remember { derivedStateOf { selected.toHashSet() } }
     // Ultimo elemento selezionato: tenendo premuto un altro si seleziona tutto quello che sta in mezzo
     var anchor by remember { mutableStateOf<String?>(null) }
     var dialog by remember { mutableStateOf<Dlg?>(null) }
@@ -149,14 +151,18 @@ fun BrowserScreen(nav: Nav, source: Source) {
     }
 
     val items by produceState<List<FileItem>?>(null, source, changed, s.sortBy, s.sortDesc, s.showHidden, s.foldersFirst, query, searching) {
+        val q = query.trim()
+        // Ricerca: aspetta che si smetta di scrivere, così non parte una scansione a ogni lettera
+        if (searching && q.isNotEmpty()) delay(300)
         value = withContext(Dispatchers.IO) {
-            val q = query.trim()
             when {
                 searching && q.isNotEmpty() && dir != null -> {
-                    val out = ArrayList<FileItem>()
-                    dir.walkTopDown()
-                        .onEnter { d -> d == dir || s.showHidden || !d.name.startsWith(".") }
-                        .forEach { f -> if (f != dir && out.size < 1000 && f.name.contains(q, ignoreCase = true) && (s.showHidden || !f.name.startsWith("."))) out += FileItem(f) }
+                    val out = dir.walkTopDown()
+                        .onEnter { d -> ensureActive(); d == dir || s.showHidden || !d.name.startsWith(".") }
+                        .filter { f -> f != dir && f.name.contains(q, ignoreCase = true) && (s.showHidden || !f.name.startsWith(".")) }
+                        .take(1000) // si ferma al millesimo risultato invece di scorrere tutta la memoria
+                        .map { FileItem(it) }
+                        .toList()
                     sortItems(out, s.sortBy, s.sortDesc, s.foldersFirst)
                 }
                 source is Source.Folder -> listFolder(source.dir, s)
@@ -170,7 +176,7 @@ fun BrowserScreen(nav: Nav, source: Source) {
         }
     }
     val list = items.orEmpty()
-    val selItems = list.filter { it.path in selected }
+    val selItems = list.filter { it.path in selectedSet }
     val selecting = selected.isNotEmpty()
 
     BackHandler(enabled = selecting) { selected.clear() }
@@ -280,11 +286,8 @@ fun BrowserScreen(nav: Nav, source: Source) {
                     modifier = Modifier.fillMaxSize()
                 ) {
                     itemsIndexed(list, key = { _, it -> it.path }) { i, item ->
-                        val sel = item.path in selected
-                        val shape = RoundedCornerShape(
-                            topStart = if (i == 0) 24.dp else 4.dp, topEnd = if (i == 0) 24.dp else 4.dp,
-                            bottomStart = if (i == list.lastIndex) 24.dp else 4.dp, bottomEnd = if (i == list.lastIndex) 24.dp else 4.dp
-                        )
+                        val sel = item.path in selectedSet
+                        val shape = groupShape(i, list.size)
                         FileRow(
                             item, sel, s.thumbnails, s.dateFormat, s.binaryUnits,
                             showPath = searching || source is Source.Category,
@@ -298,12 +301,12 @@ fun BrowserScreen(nav: Nav, source: Source) {
                                         }
                                     },
                                     onLongClick = {
-                                        val from = anchor?.takeIf { it in selected }?.let { a -> list.indexOfFirst { it.path == a } } ?: -1
+                                        val from = anchor?.takeIf { it in selectedSet }?.let { a -> list.indexOfFirst { it.path == a } } ?: -1
                                         when {
                                             // Selezione a intervallo: dal primo selezionato fino a questo
                                             selecting && !sel && from >= 0 -> {
                                                 val range = if (from <= i) from..i else i..from
-                                                range.forEach { k -> list[k].path.let { if (it !in selected) selected.add(it) } }
+                                                selected.addAll(range.map { k -> list[k].path }.filter { it !in selectedSet })
                                                 anchor = item.path
                                             }
                                             sel -> selected.remove(item.path)
@@ -325,19 +328,22 @@ fun BrowserScreen(nav: Nav, source: Source) {
         ) {
             Box(Modifier.padding(horizontal = 0.dp)) { TransfersCard(s.binaryUnits, onlyActive = true) }
             when {
-                selecting -> ActionBar(
-                    onCopy = { FileOps.clipboard = Clipboard(selItems.map { it.file }, cut = false); selected.clear() },
-                    onCut = { FileOps.clipboard = Clipboard(selItems.map { it.file }, cut = true); selected.clear() },
-                    canRename = selItems.size == 1,
-                    onRename = { if (selItems.size == 1) dialog = Dlg.Rename(selItems[0]) },
-                    onZip = { dialog = Dlg.Zip(selItems) },
-                    onDelete = {
-                        if (s.confirmDelete) dialog = Dlg.Delete(selItems)
-                        else { FileOps.delete(ctx, selItems.map { it.file }, s.useTrash); selected.clear() }
-                    },
+                selecting -> SelectionActionBar(
+                    listOf(
+                        BarItem("Copia", Icons.Outlined.ContentCopy) { FileOps.clipboard = Clipboard(selItems.map { it.file }, cut = false); selected.clear() },
+                        BarItem("Taglia", Icons.Outlined.ContentCut) { FileOps.clipboard = Clipboard(selItems.map { it.file }, cut = true); selected.clear() },
+                        BarItem("Rinomina", Icons.Outlined.DriveFileRenameOutline, enabled = selItems.size == 1) { if (selItems.size == 1) dialog = Dlg.Rename(selItems[0]) },
+                        BarItem("Comprimi", Icons.Outlined.FolderZip) { dialog = Dlg.Zip(selItems) },
+                        BarItem("Elimina", Icons.Outlined.Delete) {
+                            if (s.confirmDelete) dialog = Dlg.Delete(selItems)
+                            else { FileOps.delete(ctx, selItems.map { it.file }, s.useTrash); selected.clear() }
+                        },
+                    )
                 )
                 remoteClip != null && source is Source.Folder -> RemotePasteBar(remoteClip, source.dir)
-                clip != null && source is Source.Folder -> PasteBar(clip,
+                clip != null && source is Source.Folder -> PasteBar(
+                    "${countLabel(clip.files.size)} da ${if (clip.cut) "spostare" else "copiare"}",
+                    "Scegli la cartella e incolla",
                     onCancel = { FileOps.clipboard = null },
                     onPaste = { FileOps.paste(ctx, source.dir) })
             }
@@ -420,7 +426,7 @@ private fun Breadcrumb(nav: Nav, dir: File) {
         ) {
             Box(
                 Modifier.size(32.dp).clip(RoundedCornerShape(16.dp)).background(cs.surfaceContainer)
-                    .combinedClickableCompat { nav.home() },
+                    .clickable { nav.home() },
                 contentAlignment = Alignment.Center
             ) { Icon(Icons.Outlined.Home, "Home", tint = cs.primary, modifier = Modifier.size(18.dp)) }
             chain.forEachIndexed { i, c ->
@@ -429,7 +435,7 @@ private fun Breadcrumb(nav: Nav, dir: File) {
                 Box(
                     Modifier.height(32.dp).clip(RoundedCornerShape(16.dp))
                         .background(if (last) cs.primaryContainer else cs.surfaceContainer)
-                        .combinedClickableCompat { if (!last) nav.openFolder(c) }
+                        .clickable { if (!last) nav.openFolder(c) }
                         .padding(horizontal = 12.dp),
                     contentAlignment = Alignment.Center
                 ) {
@@ -478,57 +484,3 @@ fun FileRow(
         else Text(formatDate(item.modified, datePattern), style = MaterialTheme.typography.labelSmall, color = cs.onSurfaceVariant)
     }
 }
-
-@Composable
-private fun ActionBar(onCopy: () -> Unit, onCut: () -> Unit, canRename: Boolean, onRename: () -> Unit, onZip: () -> Unit, onDelete: () -> Unit) {
-    val cs = MaterialTheme.colorScheme
-    Row(
-        Modifier.fillMaxWidth().height(72.dp).shadow(8.dp, RoundedCornerShape(28.dp)).clip(RoundedCornerShape(28.dp))
-            .background(cs.surfaceContainerHighest).padding(horizontal = 6.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        BarAction("Copia", Icons.Outlined.ContentCopy, onCopy)
-        BarAction("Taglia", Icons.Outlined.ContentCut, onCut)
-        BarAction("Rinomina", Icons.Outlined.DriveFileRenameOutline, onRename, enabled = canRename)
-        BarAction("Comprimi", Icons.Outlined.FolderZip, onZip)
-        BarAction("Elimina", Icons.Outlined.Delete, onDelete)
-    }
-}
-
-@Composable
-private fun androidx.compose.foundation.layout.RowScope.BarAction(label: String, icon: ImageVector, onClick: () -> Unit, enabled: Boolean = true) {
-    // Rinomina vale per un solo elemento: con più elementi selezionati resta in grigio
-    val color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = .38f)
-    Column(
-        Modifier.weight(1f).clip(RoundedCornerShape(20.dp)).then(if (enabled) Modifier.combinedClickableCompat(onClick) else Modifier).padding(vertical = 8.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
-        Icon(icon, null, tint = color)
-        Text(label, style = MaterialTheme.typography.labelMedium, color = color)
-    }
-}
-
-@Composable
-private fun PasteBar(clip: Clipboard, onCancel: () -> Unit, onPaste: () -> Unit) {
-    val cs = MaterialTheme.colorScheme
-    Row(
-        Modifier.fillMaxWidth().shadow(8.dp, RoundedCornerShape(28.dp)).clip(RoundedCornerShape(28.dp))
-            .background(cs.inverseSurface).padding(start = 20.dp, end = 8.dp, top = 10.dp, bottom = 10.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(Modifier.weight(1f)) {
-            val n = clip.files.size
-            Text(
-                "${if (n == 1) "1 elemento" else "$n elementi"} da ${if (clip.cut) "spostare" else "copiare"}",
-                color = cs.inverseOnSurface, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Medium
-            )
-            Text("Scegli la cartella e incolla", color = cs.inverseOnSurface.copy(alpha = .75f), style = MaterialTheme.typography.bodySmall)
-        }
-        TextButton(onClick = onCancel) { Text("Annulla", color = cs.inverseOnSurface) }
-        androidx.compose.material3.Button(onClick = onPaste) { Text("Incolla qui") }
-    }
-}
-
-/** Clic semplice. */
-fun Modifier.combinedClickableCompat(onClick: () -> Unit): Modifier = this.clickable(onClick = onClick)

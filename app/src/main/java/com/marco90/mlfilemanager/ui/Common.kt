@@ -3,6 +3,16 @@ package com.marco90.mlfilemanager.ui
 import android.content.Context
 import android.graphics.drawable.Drawable
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -166,12 +176,7 @@ fun ToneIcon(icon: ImageVector, tone: Tone, size: Dp = 40.dp, corner: Dp = 14.dp
 @Composable
 fun FileThumb(item: FileItem, thumbnails: Boolean, selected: Boolean = false, size: Dp = 40.dp) {
     val cs = MaterialTheme.colorScheme
-    if (selected) {
-        Box(Modifier.size(size).clip(RoundedCornerShape(14.dp)).background(cs.primary), contentAlignment = Alignment.Center) {
-            Icon(Icons.Filled.Check, null, tint = cs.onPrimary)
-        }
-        return
-    }
+    if (selected) { SelectedMark(size); return }
     val kind = item.kind
     when {
         kind == Kind.FOLDER -> Box(Modifier.size(size)) {
@@ -205,6 +210,15 @@ fun FileThumb(item: FileItem, thumbnails: Boolean, selected: Boolean = false, si
             if (d != null) DrawableImage(d, size) else ToneIcon(kind.icon(), kind.tone(), size)
         }
         else -> ToneIcon(kind.icon(), kind.tone(), size)
+    }
+}
+
+/** Segno di spunta al posto dell'icona per gli elementi selezionati. */
+@Composable
+fun SelectedMark(size: Dp = 40.dp) {
+    val cs = MaterialTheme.colorScheme
+    Box(Modifier.size(size).clip(RoundedCornerShape(14.dp)).background(cs.primary), contentAlignment = Alignment.Center) {
+        Icon(Icons.Filled.Check, null, tint = cs.onPrimary)
     }
 }
 
@@ -248,3 +262,66 @@ fun Dot(color: Color) {
 }
 
 fun isUnder(child: File, parent: File) = child.absolutePath == parent.absolutePath || child.absolutePath.startsWith(parent.absolutePath + "/")
+
+/** Angoli di una riga in un elenco a gruppo: 24 dp in cima e in fondo, 4 dp in mezzo. */
+fun groupShape(i: Int, size: Int) = RoundedCornerShape(
+    topStart = if (i == 0) 24.dp else 4.dp, topEnd = if (i == 0) 24.dp else 4.dp,
+    bottomStart = if (i == size - 1) 24.dp else 4.dp, bottomEnd = if (i == size - 1) 24.dp else 4.dp
+)
+
+@Composable
+fun Loading() {
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+}
+
+/** Un'azione della barra in basso (Copia, Taglia, Elimina...). */
+class BarItem(val label: String, val icon: ImageVector, val enabled: Boolean = true, val onClick: () -> Unit)
+
+/** Barra delle azioni sugli elementi selezionati (telefono e altri dispositivi). */
+@Composable
+fun SelectionActionBar(items: List<BarItem>) {
+    val cs = MaterialTheme.colorScheme
+    Row(
+        Modifier.fillMaxWidth().height(72.dp).shadow(8.dp, RoundedCornerShape(28.dp)).clip(RoundedCornerShape(28.dp))
+            .background(cs.surfaceContainerHighest).padding(horizontal = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        items.forEach { a ->
+            // Le azioni non disponibili (es. Rinomina con più elementi) restano in grigio
+            val color = if (a.enabled) cs.onSurface else cs.onSurface.copy(alpha = .38f)
+            Column(
+                Modifier.weight(1f).clip(RoundedCornerShape(20.dp))
+                    .then(if (a.enabled) Modifier.clickable(onClick = a.onClick) else Modifier).padding(vertical = 8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Icon(a.icon, null, tint = color)
+                Text(a.label, style = MaterialTheme.typography.labelMedium, color = color)
+            }
+        }
+    }
+}
+
+/** Barra scura «Annulla / Incolla qui» per gli elementi copiati o tagliati. */
+@Composable
+fun PasteBar(title: String, subtitle: String, onCancel: () -> Unit, onPaste: () -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    Row(
+        Modifier.fillMaxWidth().shadow(8.dp, RoundedCornerShape(28.dp)).clip(RoundedCornerShape(28.dp))
+            .background(cs.inverseSurface).padding(start = 20.dp, end = 8.dp, top = 10.dp, bottom = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                title, color = cs.inverseOnSurface, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Medium,
+                maxLines = 1, overflow = TextOverflow.Ellipsis
+            )
+            Text(subtitle, color = cs.inverseOnSurface.copy(alpha = .75f), style = MaterialTheme.typography.bodySmall)
+        }
+        TextButton(onClick = onCancel) { Text("Annulla", color = cs.inverseOnSurface) }
+        Button(onClick = onPaste) { Text("Incolla qui") }
+    }
+}
+
+/** "1 elemento" / "3 elementi". */
+fun countLabel(n: Int) = if (n == 1) "1 elemento" else "$n elementi"

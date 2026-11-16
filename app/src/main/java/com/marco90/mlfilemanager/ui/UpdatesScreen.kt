@@ -164,7 +164,7 @@ fun LogScreen(nav: Nav) {
     val lines = remember(rev) { AppLog.snapshot() }
     val listState = rememberLazyListState()
     LaunchedEffect(rev) { if (lines.isNotEmpty()) listState.scrollToItem(lines.lastIndex) }
-    val dark = cs.surface.red + cs.surface.green + cs.surface.blue < 1.5f
+    val dark = isDark()
 
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
         Row(Modifier.fillMaxWidth().height(64.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {

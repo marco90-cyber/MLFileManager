@@ -9,6 +9,9 @@ import android.webkit.MimeTypeMap
 import android.widget.Toast
 import androidx.core.content.FileProvider
 import java.io.File
+import java.io.IOException
+import java.io.InputStream
+import java.io.OutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -118,16 +121,66 @@ fun sortItems(items: List<FileItem>, by: String, desc: Boolean, foldersFirst: Bo
     return items.sortedWith(cmp)
 }
 
-/** Nome libero nella cartella: "foto.jpg" -> "foto (1).jpg". */
-fun uniqueFile(dir: File, name: String): File {
-    var f = File(dir, name)
-    if (!f.exists()) return f
-    val base = if (name.contains('.') && !name.startsWith(".")) name.substringBeforeLast('.') else name
-    val ext = if (name.contains('.') && !name.startsWith(".")) "." + name.substringAfterLast('.') else ""
-    var i = 1
-    while (f.exists()) { f = File(dir, "$base ($i)$ext"); i++ }
-    return f
+/** "foto.jpg", 2 -> "foto (2).jpg" (i nomi che iniziano col punto restano interi). */
+fun numberedName(name: String, i: Int): String {
+    val hasExt = name.contains('.') && !name.startsWith(".")
+    val base = if (hasExt) name.substringBeforeLast('.') else name
+    val ext = if (hasExt) "." + name.substringAfterLast('.') else ""
+    return "$base ($i)$ext"
 }
+
+/** Primo nome non ancora usato: "foto.jpg" -> "foto (1).jpg" -> "foto (2).jpg"... */
+inline fun freeName(name: String, taken: (String) -> Boolean): String {
+    if (!taken(name)) return name
+    var i = 1
+    while (taken(numberedName(name, i))) i++
+    return numberedName(name, i)
+}
+
+/** Nome libero nella cartella: "foto.jpg" -> "foto (1).jpg". */
+fun uniqueFile(dir: File, name: String): File = File(dir, freeName(name) { File(dir, it).exists() })
+
+/** Dimensione del buffer usata per copiare i file. */
+const val COPY_BUFFER = 256 * 1024
+
+/**
+ * Copia [this] in [out] a blocchi; [onChunk] riceve i byte di ogni blocco
+ * (essendo inline, dentro si può controllare se l'operazione è stata annullata).
+ */
+inline fun InputStream.pump(out: OutputStream, buf: ByteArray = ByteArray(COPY_BUFFER), onChunk: (Int) -> Unit = {}): Long {
+    var total = 0L
+    while (true) {
+        val r = read(buf)
+        if (r < 0) break
+        out.write(buf, 0, r)
+        total += r
+        onChunk(r)
+    }
+    return total
+}
+
+/**
+ * Da percorso "virtuale" (FTP / browser) a file reale dentro [root], senza poter uscire dalla radice
+ * (né con "..", né con collegamenti simbolici). [rootCanon] = root.canonicalPath.
+ */
+fun resolveInside(root: File, rootCanon: String, vpath: String): File? {
+    val parts = ArrayList<String>()
+    vpath.split('/').forEach { seg ->
+        when (seg) {
+            "", "." -> {}
+            ".." -> if (parts.isNotEmpty()) parts.removeAt(parts.lastIndex)
+            else -> parts += seg
+        }
+    }
+    val f = File(root, parts.joinToString("/"))
+    return try {
+        val c = f.canonicalPath
+        if (c == rootCanon || c.startsWith("$rootCanon/")) f else null
+    } catch (_: IOException) { null }
+}
+
+/** Percorso "virtuale" di [f] rispetto a [root] ("/" per la radice). */
+fun virtualPath(root: File, f: File): String = f.absolutePath.removePrefix(root.absolutePath).ifEmpty { "/" }
 
 fun invalidName(name: String): String? = when {
     name.isBlank() -> "Il nome non può essere vuoto"

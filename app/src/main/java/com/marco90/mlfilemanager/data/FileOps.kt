@@ -9,6 +9,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.isActive
@@ -62,8 +63,9 @@ object FileOps {
 
     fun cancel() { job?.cancel() }
 
-    private fun launchOp(ctx: Context, title: String, block: suspend () -> String?) {
-        if (job?.isActive == true) { _message.value = "Attendi la fine dell'operazione in corso"; return }
+    /** Avvia un'operazione in background; false se ce n'è già una in corso. */
+    private fun launchOp(ctx: Context, title: String, block: suspend () -> String?): Boolean {
+        if (job?.isActive == true) { _message.value = "Attendi la fine dell'operazione in corso"; return false }
         job = scope.launch {
             _progress.value = OpProgress(title)
             val msg = try {
@@ -80,6 +82,7 @@ object FileOps {
             _changed.value++
             rescan(ctx)
         }
+        return true
     }
 
     private val touched = mutableListOf<String>()
@@ -93,12 +96,16 @@ object FileOps {
 
     fun paste(ctx: Context, dest: File) {
         val clip = clipboard ?: return
-        if (clip.cut) clipboard = null
-        if (clip.cut) move(ctx, clip.files, dest) else copy(ctx, clip.files, dest)
+        // Gli appunti di "Taglia" si svuotano solo se lo spostamento parte davvero
+        if (clip.cut) { if (move(ctx, clip.files, dest)) clipboard = null } else copy(ctx, clip.files, dest)
     }
 
+    /** true se [dest] è una delle cartelle sorgente o sta dentro una di esse. */
+    private fun intoItself(sources: List<File>, dest: File) =
+        sources.any { s -> dest == s || dest.absolutePath.startsWith(s.absolutePath + "/") }
+
     fun copy(ctx: Context, sources: List<File>, dest: File) = launchOp(ctx, "Copia in corso") {
-        for (s in sources) if (dest.absolutePath.startsWith(s.absolutePath + "/") || dest == s) return@launchOp "Non puoi copiare una cartella dentro sé stessa"
+        if (intoItself(sources, dest)) return@launchOp "Non puoi copiare una cartella dentro sé stessa"
         val (bytes, count) = measure(sources)
         var done = 0L
         var n = 0
@@ -114,16 +121,20 @@ object FileOps {
     }
 
     fun move(ctx: Context, sources: List<File>, dest: File) = launchOp(ctx, "Spostamento in corso") {
-        for (s in sources) if (dest.absolutePath.startsWith(s.absolutePath + "/") || dest == s) return@launchOp "Non puoi spostare una cartella dentro sé stessa"
-        val (bytes, count) = measure(sources)
+        if (intoItself(sources, dest)) return@launchOp "Non puoi spostare una cartella dentro sé stessa"
+        val sizes = sources.map { measure(listOf(it)) }
+        val bytes = sizes.sumOf { it.first }
+        val count = sizes.sumOf { it.second }
         var done = 0L
         var n = 0
-        for (s in sources) {
+        for ((idx, s) in sources.withIndex()) {
             if (s.parentFile == dest) continue
             val target = uniqueFile(dest, s.name)
             if (s.renameTo(target)) {
                 touch(s); touch(target)
-                n++
+                // Spostamento istantaneo (stessa memoria): la barra avanza comunque di byte e file
+                done += sizes[idx].first
+                n += sizes[idx].second
                 _progress.value = OpProgress("Spostamento in corso", s.name, done, bytes, n, count)
                 continue
             }
@@ -162,20 +173,18 @@ object FileOps {
             if (!dst.exists() && !dst.mkdirs()) throw IOException("Impossibile creare ${dst.name}")
             src.listFiles()?.forEach { copyRec(it, File(dst, it.name), onBytes) }
         } else {
-            FileInputStream(src).use { input ->
-                FileOutputStream(dst).use { out ->
-                    val buf = ByteArray(256 * 1024)
-                    while (true) {
-                        if (!coroutineContext.isActive) {
-                            out.close(); dst.delete()
-                            throw kotlinx.coroutines.CancellationException()
+            try {
+                FileInputStream(src).use { input ->
+                    FileOutputStream(dst).use { out ->
+                        input.pump(out) { r ->
+                            coroutineContext.ensureActive()
+                            onBytes(r.toLong(), src.name)
                         }
-                        val r = input.read(buf)
-                        if (r < 0) break
-                        out.write(buf, 0, r)
-                        onBytes(r.toLong(), src.name)
                     }
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                dst.delete() // niente file a metà
+                throw e
             }
             dst.setLastModified(src.lastModified())
             touch(dst)
@@ -212,16 +221,31 @@ object FileOps {
     // ---------- Comprimi / Estrai ----------
 
     fun zip(ctx: Context, sources: List<File>, target: File) = launchOp(ctx, "Compressione") {
+        try {
+            zipTo(target, sources, "Compressione")
+        } catch (e: Exception) {
+            target.delete() // niente ZIP a metà se annullato o in errore
+            throw e
+        }
+        touch(target)
+        "Creato «${target.name}»"
+    }
+
+    /**
+     * Comprime [sources] (file e cartelle, con il loro nome) in [target] mostrando l'avanzamento.
+     * Usato sia da «Comprimi» sia da «Condividi» per le cartelle.
+     */
+    private suspend fun zipTo(target: File, sources: List<File>, title: String) {
         val (bytes, count) = measure(sources)
         var done = 0L
         var n = 0
+        val buf = ByteArray(COPY_BUFFER)
         ZipOutputStream(FileOutputStream(target).buffered()).use { zos ->
-            val buf = ByteArray(256 * 1024)
             for (s in sources) {
                 val base = s.parentFile ?: s
-                s.walkTopDown().forEach { f ->
-                    if (!coroutineContext.isActive) throw kotlinx.coroutines.CancellationException()
-                    if (f == target) return@forEach
+                for (f in s.walkTopDown()) {
+                    coroutineContext.ensureActive()
+                    if (f == target) continue
                     val rel = f.absolutePath.removePrefix(base.absolutePath).trimStart('/')
                     if (f.isDirectory) {
                         zos.putNextEntry(ZipEntry("$rel/").apply { time = f.lastModified() })
@@ -229,12 +253,10 @@ object FileOps {
                     } else {
                         zos.putNextEntry(ZipEntry(rel).apply { time = f.lastModified() })
                         FileInputStream(f).use { input ->
-                            while (true) {
-                                val r = input.read(buf)
-                                if (r < 0) break
-                                zos.write(buf, 0, r)
+                            input.pump(zos, buf) { r ->
+                                coroutineContext.ensureActive()
                                 done += r
-                                _progress.value = OpProgress("Compressione", f.name, done, bytes, n, count)
+                                _progress.value = OpProgress(title, f.name, done, bytes, n, count)
                             }
                         }
                         zos.closeEntry()
@@ -243,8 +265,6 @@ object FileOps {
                 }
             }
         }
-        touch(target)
-        "Creato «${target.name}»"
     }
 
     /**
@@ -257,36 +277,8 @@ object FileOps {
         val app = ctx.applicationContext
         launchOp(ctx, "Preparazione per la condivisione") {
             val out = File(app.cacheDir, "share").apply { deleteRecursively(); mkdirs() }
-            val (bytes, count) = measure(dirs)
-            var done = 0L
-            var n = 0
             val zips = dirs.map { dir ->
-                val target = uniqueFile(out, dir.name + ".zip")
-                ZipOutputStream(FileOutputStream(target).buffered()).use { zos ->
-                    val buf = ByteArray(256 * 1024)
-                    val base = dir.parentFile ?: dir
-                    dir.walkTopDown().forEach { f ->
-                        if (!coroutineContext.isActive) throw kotlinx.coroutines.CancellationException()
-                        val rel = f.absolutePath.removePrefix(base.absolutePath).trimStart('/')
-                        if (f.isDirectory) {
-                            zos.putNextEntry(ZipEntry("$rel/").apply { time = f.lastModified() }); zos.closeEntry()
-                        } else {
-                            zos.putNextEntry(ZipEntry(rel).apply { time = f.lastModified() })
-                            FileInputStream(f).use { input ->
-                                while (true) {
-                                    val r = input.read(buf)
-                                    if (r < 0) break
-                                    zos.write(buf, 0, r)
-                                    done += r
-                                    _progress.value = OpProgress("Preparazione per la condivisione", f.name, done, bytes, n, count)
-                                }
-                            }
-                            zos.closeEntry()
-                            n++
-                        }
-                    }
-                }
-                target
+                uniqueFile(out, dir.name + ".zip").also { zipTo(it, listOf(dir), "Preparazione per la condivisione") }
             }
             val all = items.filter { it.isFile } + zips
             kotlinx.coroutines.withContext(Dispatchers.Main) { shareFiles(app, all) }
@@ -302,23 +294,18 @@ object FileOps {
         var n = 0
         val canon = dest.canonicalPath
         ZipInputStream(FileInputStream(zip).buffered()).use { zis ->
-            val buf = ByteArray(256 * 1024)
+            val buf = ByteArray(COPY_BUFFER)
             while (true) {
                 val e = zis.nextEntry ?: break
-                if (!coroutineContext.isActive) throw kotlinx.coroutines.CancellationException()
+                coroutineContext.ensureActive()
                 val out = File(dest, e.name)
-                if (!out.canonicalPath.startsWith(canon)) continue // protezione "zip slip"
+                val oc = out.canonicalPath
+                if (oc != canon && !oc.startsWith("$canon/")) continue // protezione "zip slip"
                 if (e.isDirectory) {
                     out.mkdirs()
                 } else {
                     out.parentFile?.mkdirs()
-                    FileOutputStream(out).use { os ->
-                        while (true) {
-                            val r = zis.read(buf)
-                            if (r < 0) break
-                            os.write(buf, 0, r)
-                        }
-                    }
+                    FileOutputStream(out).use { os -> zis.pump(os, buf) { coroutineContext.ensureActive() } }
                     if (e.time > 0) out.setLastModified(e.time)
                     touch(out)
                     n++

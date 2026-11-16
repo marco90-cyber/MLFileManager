@@ -30,7 +30,6 @@ import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Share
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -46,6 +45,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -70,6 +70,7 @@ import com.marco90.mlfilemanager.data.formatSize
 import com.marco90.mlfilemanager.data.shareFiles
 import com.marco90.mlfilemanager.data.uniqueFile
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -85,6 +86,7 @@ fun AppsScreen(nav: Nav) {
     var query by rememberSaveable { mutableStateOf("") }
     var searching by rememberSaveable { mutableStateOf(false) }
     var sheet by remember { mutableStateOf<AppEntry?>(null) }
+    val scope = rememberCoroutineScope()
 
     val apps by produceState<List<AppEntry>?>(null, changed, system) {
         value = withContext(Dispatchers.IO) { Media.apps(ctx, system).sortedByDescending { it.size } }
@@ -166,7 +168,7 @@ fun AppsScreen(nav: Nav) {
             if (l == null) Loading() else {
                 val f = if (q.isEmpty()) l else l.filter { it.name.contains(q, true) }
                 if (f.isEmpty()) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Nessun file APK", color = cs.onSurfaceVariant) }
-                LazyColumn(
+                else LazyColumn(
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp),
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                     modifier = Modifier.fillMaxSize().navigationBarsPadding()
@@ -208,8 +210,14 @@ fun AppsScreen(nav: Nav) {
                     sheet = null
                 }
                 SheetItem(Icons.Outlined.Share, "Condividi APK") {
+                    // La copia di un APK può durare secondi: in background, non sul thread dell'interfaccia
                     val tmp = File(ctx.cacheDir, "${a.label.replace(Regex("[^A-Za-z0-9._-]"), "_")}.apk")
-                    try { a.apk.copyTo(tmp, overwrite = true); shareFiles(ctx, listOf(tmp)) } catch (_: Exception) { }
+                    scope.launch {
+                        val ok = withContext(Dispatchers.IO) {
+                            try { a.apk.copyTo(tmp, overwrite = true); true } catch (_: Exception) { false }
+                        }
+                        if (ok) shareFiles(ctx, listOf(tmp)) else Toast.makeText(ctx, "Impossibile preparare l'APK", Toast.LENGTH_SHORT).show()
+                    }
                     sheet = null
                 }
                 if (!a.system) SheetItem(Icons.Outlined.Delete, "Disinstalla") {
@@ -231,14 +239,4 @@ private fun SheetItem(icon: ImageVector, text: String, onClick: () -> Unit) {
         Text(text, style = MaterialTheme.typography.bodyLarge)
     }
 }
-
-@Composable
-fun Loading() {
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-}
-
-fun groupShape(i: Int, size: Int) = RoundedCornerShape(
-    topStart = if (i == 0) 24.dp else 4.dp, topEnd = if (i == 0) 24.dp else 4.dp,
-    bottomStart = if (i == size - 1) 24.dp else 4.dp, bottomEnd = if (i == size - 1) 24.dp else 4.dp
-)
 

@@ -43,12 +43,11 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.runtime.DisposableEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.marco90.mlfilemanager.AppUpdateHost
-import com.marco90.mlfilemanager.data.AppSettings
+import com.marco90.mlfilemanager.data.AppLog
 import com.marco90.mlfilemanager.data.Cat
 import com.marco90.mlfilemanager.data.FileItem
 import com.marco90.mlfilemanager.data.FileOps
 import com.marco90.mlfilemanager.data.Kind
-import com.marco90.mlfilemanager.data.ROOT
 import com.marco90.mlfilemanager.data.formatSize
 import com.marco90.mlfilemanager.data.installApk
 import com.marco90.mlfilemanager.data.openExternal
@@ -82,7 +81,7 @@ sealed interface Screen {
 class Nav(private val stack: MutableList<Screen>) {
     val current: Screen get() = stack.last()
     val depth: Int get() = stack.size
-    fun push(s: Screen) { com.marco90.mlfilemanager.data.AppLog.d("Nav", "Apro ${s.toString().take(200)}"); stack.add(s) }
+    fun push(s: Screen) { AppLog.d("Nav", "Apro ${s.toString().take(200)}"); stack.add(s) }
     fun pop() { if (stack.size > 1) stack.removeAt(stack.lastIndex) }
     fun replace(s: Screen) { stack[stack.lastIndex] = s }
     fun home() { while (stack.size > 1) stack.removeAt(stack.lastIndex) }
@@ -221,9 +220,3 @@ private fun Messages() {
         msg?.let { Toast.makeText(ctx, it, Toast.LENGTH_SHORT).show(); FileOps.clearMessage() }
     }
 }
-
-/** Radice della memoria come File, per le schermate. */
-val rootDir: File get() = ROOT
-
-@Suppress("unused")
-private fun settingsOf(ctx: android.content.Context) = AppSettings.get(ctx)

@@ -40,6 +40,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -83,7 +84,7 @@ fun HomeScreen(nav: Nav) {
     val storage by produceState<StorageInfo?>(null, changed) { value = withContext(Dispatchers.IO) { Media.storage(ctx) } }
     val stats = remember { mutableStateMapOf<Cat, CatStat>() }
     // Dimensioni delle categorie calcolate in parallelo (si aggiornano dopo ogni operazione)
-    produceState(0, changed) {
+    LaunchedEffect(changed) {
         withContext(Dispatchers.IO) {
             coroutineScope {
                 listOf(Cat.IMAGES, Cat.AUDIO, Cat.VIDEO, Cat.DOCUMENTS, Cat.RECENT, Cat.APPS, Cat.DOWNLOAD, Cat.TRASH).map { c ->
@@ -91,7 +92,7 @@ fun HomeScreen(nav: Nav) {
                         val st = when (c) {
                             Cat.DOWNLOAD -> Media.folderStat(File(ROOT, Environment.DIRECTORY_DOWNLOADS))
                             Cat.TRASH -> Trash.list().let { l -> CatStat(l.sumOf { it.file.walkTopDown().filter { f -> f.isFile }.sumOf { f -> f.length() } }, l.size) }
-                            Cat.APPS -> Media.apps(ctx).let { l -> CatStat(l.sumOf { it.size }, l.size) }
+                            Cat.APPS -> Media.appsStat(ctx) // senza caricare nomi e icone di tutte le app
                             else -> Media.stat(ctx, c)
                         }
                         withContext(Dispatchers.Main) { stats[c] = st }
@@ -99,7 +100,6 @@ fun HomeScreen(nav: Nav) {
                 }.forEach { it.await() }
             }
         }
-        value = 1
     }
 
     var menu by remember { mutableStateOf(false) }

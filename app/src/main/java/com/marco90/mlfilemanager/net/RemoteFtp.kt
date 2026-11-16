@@ -6,11 +6,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.marco90.mlfilemanager.data.AppLog
 import com.marco90.mlfilemanager.data.FileOps
+import com.marco90.mlfilemanager.data.freeName
+import com.marco90.mlfilemanager.data.pump
 import com.marco90.mlfilemanager.data.uniqueFile
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.isActive
@@ -203,14 +206,7 @@ object RemoteOps {
             val input = c.retrieveFileStream(it.path) ?: throw IOException("Impossibile scaricare ${it.name}")
             input.use { ins ->
                 FileOutputStream(part).use { os ->
-                    val buf = ByteArray(256 * 1024)
-                    while (true) {
-                        if (!coroutineContext.isActive) throw kotlinx.coroutines.CancellationException()
-                        val r = ins.read(buf)
-                        if (r < 0) break
-                        os.write(buf, 0, r)
-                        h.add(r.toLong())
-                    }
+                    ins.pump(os) { r -> coroutineContext.ensureActive(); h.add(r.toLong()) }
                 }
             }
             if (!c.completePendingCommand()) throw IOException("Download di ${it.name} non completato")
@@ -232,10 +228,7 @@ object RemoteOps {
             try {
                 val existing = RemoteFtp.list(c, remoteDir).map { it.name }.toMutableSet()
                 for (f in files) {
-                    var name = f.name
-                    var i = 1
-                    val base = name.substringBeforeLast('.'); val ext = if (name.contains('.')) "." + name.substringAfterLast('.') else ""
-                    while (name in existing) { name = "$base ($i)$ext"; i++ }
+                    val name = freeName(f.name) { it in existing }
                     existing += name
                     uploadRec(c, d, f, RemoteFtp.join(remoteDir, name))
                 }
@@ -256,14 +249,7 @@ object RemoteOps {
             val os = c.storeFileStream(remote) ?: throw IOException("${d.name} non accetta il file ${f.name}")
             os.use { out ->
                 FileInputStream(f).use { ins ->
-                    val buf = ByteArray(256 * 1024)
-                    while (true) {
-                        if (!coroutineContext.isActive) throw kotlinx.coroutines.CancellationException()
-                        val r = ins.read(buf)
-                        if (r < 0) break
-                        out.write(buf, 0, r)
-                        h.add(r.toLong())
-                    }
+                    ins.pump(out) { r -> coroutineContext.ensureActive(); h.add(r.toLong()) }
                 }
             }
             if (!c.completePendingCommand()) throw IOException("Invio di ${f.name} non completato")

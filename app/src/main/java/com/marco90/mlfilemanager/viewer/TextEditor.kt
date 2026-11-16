@@ -35,7 +35,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -61,6 +63,16 @@ import java.io.File
 
 private const val MAX_SIZE = 4L * 1024 * 1024
 
+/**
+ * Le modifiche non salvate sopravvivono alla ricreazione della finestra solo per testi piccoli:
+ * Android limita lo stato salvato a circa 1 MB e un testo grande farebbe chiudere l'app
+ * (TransactionTooLargeException) quando va in background.
+ */
+private val SmallTextSaver = Saver<MutableState<String?>, String>(
+    save = { st -> st.value?.takeIf { it.length <= 100_000 } },
+    restore = { mutableStateOf(it) }
+)
+
 @Composable
 fun TextEditorScreen(nav: Nav, path: String) {
     val ctx = LocalContext.current
@@ -68,7 +80,7 @@ fun TextEditorScreen(nav: Nav, path: String) {
     val file = File(path)
     val scope = rememberCoroutineScope()
     var original by remember { mutableStateOf<String?>(null) }
-    var text by rememberSaveable { mutableStateOf<String?>(null) }
+    var text by rememberSaveable(saver = SmallTextSaver) { mutableStateOf<String?>(null) }
     var wrap by rememberSaveable { mutableStateOf(true) }
     var fontSize by remember { mutableFloatStateOf(14f) }
     var askSave by remember { mutableStateOf(false) }
