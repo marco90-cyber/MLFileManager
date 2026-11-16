@@ -56,7 +56,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.marco.mltheme.MLSwitch
 import com.marco90.mlfilemanager.data.AppSettings
 import com.marco90.mlfilemanager.data.Cat
 import com.marco90.mlfilemanager.data.CatStat
@@ -155,19 +154,20 @@ fun HomeScreen(nav: Nav) {
         }
 
         SectionTitle("Categorie")
-        val tiles = buildList {
+        val tiles = buildList<Cat?> {
             add(Cat.DOWNLOAD); add(Cat.IMAGES); add(Cat.AUDIO); add(Cat.VIDEO); add(Cat.DOCUMENTS); add(Cat.APPS); add(Cat.RECENT)
-            if (s.showSystem) add(Cat.SYSTEM)
+            add(null) // Strumenti/Rete
             add(Cat.TRASH)
         }
         Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             tiles.chunked(3).forEach { rowCats ->
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     rowCats.forEach { c ->
-                        CategoryTile(c, stats[c], s.binaryUnits, Modifier.weight(1f)) {
+                        if (c == null) {
+                            ToolsTile(if (net.running) "Attivo" else "Accesso e dispositivi", Modifier.weight(1f)) { nav.push(Screen.Tools) }
+                        } else CategoryTile(c, stats[c], s.binaryUnits, Modifier.weight(1f)) {
                             when (c) {
                                 Cat.DOWNLOAD -> nav.openFolder(File(ROOT, Environment.DIRECTORY_DOWNLOADS))
-                                Cat.SYSTEM -> nav.openFolder(File("/"))
                                 Cat.APPS -> nav.push(Screen.Apps)
                                 Cat.TRASH -> nav.push(Screen.Trash)
                                 else -> nav.push(Screen.Category(c))
@@ -178,27 +178,6 @@ fun HomeScreen(nav: Nav) {
                 }
             }
         }
-
-        SectionTitle("Strumenti")
-        Row(
-            Modifier.padding(horizontal = 16.dp).fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(cs.surfaceContainer)
-                .clickable { nav.push(Screen.Network) }.padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            ToneIcon(Icons.Outlined.Devices, Tones.orange, 44.dp, 16.dp, 24.dp)
-            Column(Modifier.weight(1f)) {
-                Text("Accesso da rete", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
-                Text(
-                    if (net.running) listOfNotNull(net.ftpUrl, net.httpUrl).firstOrNull() ?: "Attivo" else "FTP e browser · spento",
-                    style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis
-                )
-            }
-            Box(Modifier.width(1.dp).height(32.dp).background(cs.outlineVariant))
-            MLSwitch(checked = net.running, onCheckedChange = { on -> if (on) Net.start(ctx) else Net.stop(ctx) })
-        }
-
-        DevicesSection(nav)
     }
 }
 
@@ -239,11 +218,26 @@ private fun CategoryTile(c: Cat, st: CatStat?, binary: Boolean, modifier: Modifi
         Column {
             Text(c.label, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             val sub = when {
-                c == Cat.SYSTEM -> "Radice /"
                 c == Cat.TRASH && st != null && st.count == 0 -> "Vuoto"
                 st == null -> "…"
                 else -> "${formatSize(st.size, binary)} · ${st.count}"
             }
+            Text(sub, style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+@Composable
+private fun ToolsTile(sub: String, modifier: Modifier, onClick: () -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    Column(
+        modifier.heightIn(min = 112.dp).clip(RoundedCornerShape(24.dp)).background(cs.surfaceContainer).clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        ToneIcon(Icons.Outlined.Devices, Tones.orange, 44.dp, 16.dp, 24.dp)
+        Column {
+            Text("Strumenti/Rete", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(sub, style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }

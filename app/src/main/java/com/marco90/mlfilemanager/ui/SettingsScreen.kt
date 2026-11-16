@@ -96,7 +96,6 @@ fun SettingsScreen(nav: Nav) {
         }
 
         MLGroup("Avanzate") {
-            MLSwitchRow("Mostra la cartella Sistema", "Radice / in sola lettura", s.showSystem, icon = Icons.Outlined.Terminal) { s.showSystem = it }
             MLNavRow(
                 "Accesso a tutti i file",
                 if (Environment.isExternalStorageManager()) "Consentito" else "Non consentito",

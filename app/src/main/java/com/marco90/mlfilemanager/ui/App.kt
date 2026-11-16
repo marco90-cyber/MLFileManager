@@ -67,6 +67,7 @@ sealed interface Screen {
     data object Analysis : Screen
     data object Apps : Screen
     data object Network : Screen
+    data object Tools : Screen
     data object Settings : Screen
     data object Trash : Screen
     data object Updates : Screen
@@ -126,6 +127,7 @@ fun AppRoot() {
                     Screen.Analysis -> AnalysisScreen(nav)
                     Screen.Apps -> AppsScreen(nav)
                     Screen.Network -> NetworkScreen(nav)
+                    Screen.Tools -> ToolsScreen(nav)
                     Screen.Settings -> SettingsScreen(nav)
                     Screen.Trash -> TrashScreen(nav)
                     Screen.Updates -> UpdatesScreen(nav)
