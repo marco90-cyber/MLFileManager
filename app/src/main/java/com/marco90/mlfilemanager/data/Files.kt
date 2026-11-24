@@ -121,11 +121,15 @@ fun sortItems(items: List<FileItem>, by: String, desc: Boolean, foldersFirst: Bo
     return items.sortedWith(cmp)
 }
 
-/** "foto.jpg", 2 -> "foto (2).jpg" (i nomi che iniziano col punto restano interi). */
+/**
+ * "foto.jpg", 2 -> "foto (2).jpg"; file nascosti: ".dati.json" -> ".dati (2).json",
+ * mentre ".bashrc" (solo il punto iniziale) resta intero -> ".bashrc (2)".
+ */
 fun numberedName(name: String, i: Int): String {
-    val hasExt = name.contains('.') && !name.startsWith(".")
-    val base = if (hasExt) name.substringBeforeLast('.') else name
-    val ext = if (hasExt) "." + name.substringAfterLast('.') else ""
+    val dot = name.lastIndexOf('.')
+    val hasExt = dot > 0 && dot < name.length - 1
+    val base = if (hasExt) name.substring(0, dot) else name
+    val ext = if (hasExt) name.substring(dot) else ""
     return "$base ($i)$ext"
 }
 
