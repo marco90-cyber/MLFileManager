@@ -34,6 +34,9 @@ data class OpProgress(
     val totalFiles: Int = 0,
 )
 
+/** Cosa fare quando nella cartella di destinazione esiste già un elemento con lo stesso nome. */
+enum class OnConflict { RENAME, REPLACE }
+
 /** Appunti per Copia / Taglia → Incolla. */
 data class Clipboard(val files: List<File>, val cut: Boolean)
 
@@ -94,23 +97,33 @@ object FileOps {
 
     // ---------- Copia / Sposta ----------
 
-    fun paste(ctx: Context, dest: File) {
+    fun paste(ctx: Context, dest: File, onConflict: OnConflict = OnConflict.RENAME) {
         val clip = clipboard ?: return
         // Gli appunti di "Taglia" si svuotano solo se lo spostamento parte davvero
-        if (clip.cut) { if (move(ctx, clip.files, dest)) clipboard = null } else copy(ctx, clip.files, dest)
+        if (clip.cut) { if (move(ctx, clip.files, dest, onConflict)) clipboard = null } else copy(ctx, clip.files, dest, onConflict)
+    }
+
+    /** Elementi degli appunti che esistono già in [dest] (e quindi richiedono di scegliere cosa fare). */
+    fun conflicts(files: List<File>, dest: File): List<File> =
+        files.filter { s -> s.parentFile != dest && File(dest, s.name).exists() }
+
+    /** Cartella su cartella si uniscono; in tutti gli altri casi il vecchio elemento viene eliminato prima. */
+    private suspend fun clearForReplace(src: File, target: File) {
+        if (target.exists() && !(src.isDirectory && target.isDirectory)) deleteRec(target)
     }
 
     /** true se [dest] è una delle cartelle sorgente o sta dentro una di esse. */
     private fun intoItself(sources: List<File>, dest: File) =
         sources.any { s -> dest == s || dest.absolutePath.startsWith(s.absolutePath + "/") }
 
-    fun copy(ctx: Context, sources: List<File>, dest: File) = launchOp(ctx, "Copia in corso") {
+    fun copy(ctx: Context, sources: List<File>, dest: File, onConflict: OnConflict = OnConflict.RENAME) = launchOp(ctx, "Copia in corso") {
         if (intoItself(sources, dest)) return@launchOp "Non puoi copiare una cartella dentro sé stessa"
         val (bytes, count) = measure(sources)
         var done = 0L
         var n = 0
         for (s in sources) {
-            val target = uniqueFile(dest, s.name)
+            val replace = onConflict == OnConflict.REPLACE && s.parentFile != dest
+            val target = if (replace) File(dest, s.name).also { clearForReplace(s, it) } else uniqueFile(dest, s.name)
             copyRec(s, target) { b, name ->
                 done += b
                 if (b == 0L) n++
@@ -120,7 +133,7 @@ object FileOps {
         if (sources.size == 1) "Copiato «${sources[0].name}»" else "Copiati ${sources.size} elementi"
     }
 
-    fun move(ctx: Context, sources: List<File>, dest: File) = launchOp(ctx, "Spostamento in corso") {
+    fun move(ctx: Context, sources: List<File>, dest: File, onConflict: OnConflict = OnConflict.RENAME) = launchOp(ctx, "Spostamento in corso") {
         if (intoItself(sources, dest)) return@launchOp "Non puoi spostare una cartella dentro sé stessa"
         val sizes = sources.map { measure(listOf(it)) }
         val bytes = sizes.sumOf { it.first }
@@ -129,7 +142,7 @@ object FileOps {
         var n = 0
         for ((idx, s) in sources.withIndex()) {
             if (s.parentFile == dest) continue
-            val target = uniqueFile(dest, s.name)
+            val target = if (onConflict == OnConflict.REPLACE) File(dest, s.name).also { clearForReplace(s, it) } else uniqueFile(dest, s.name)
             if (s.renameTo(target)) {
                 touch(s); touch(target)
                 // Spostamento istantaneo (stessa memoria): la barra avanza comunque di byte e file

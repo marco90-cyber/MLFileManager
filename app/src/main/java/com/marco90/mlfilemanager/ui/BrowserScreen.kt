@@ -51,6 +51,7 @@ import androidx.compose.material.icons.outlined.Storage
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.Unarchive
 import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -59,6 +60,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
@@ -97,6 +99,7 @@ import com.marco90.mlfilemanager.data.formatDate
 import com.marco90.mlfilemanager.data.formatSize
 import com.marco90.mlfilemanager.data.itemsLabel
 import com.marco90.mlfilemanager.data.listFolder
+import com.marco90.mlfilemanager.data.OnConflict
 import com.marco90.mlfilemanager.data.openExternal
 import com.marco90.mlfilemanager.data.sortItems
 import com.marco90.mlfilemanager.data.uniqueFile
@@ -118,6 +121,7 @@ private sealed interface Dlg {
     data class Rename(val item: FileItem) : Dlg
     data class Delete(val items: List<FileItem>) : Dlg
     data class Props(val items: List<FileItem>) : Dlg
+    data class Conflict(val dest: File, val names: List<String>) : Dlg
     data class Zip(val items: List<FileItem>) : Dlg
     data class Archive(val item: FileItem) : Dlg
     data object Sort : Dlg
@@ -345,7 +349,10 @@ fun BrowserScreen(nav: Nav, source: Source) {
                     "${countLabel(clip.files.size)} da ${if (clip.cut) "spostare" else "copiare"}",
                     "Scegli la cartella e incolla",
                     onCancel = { FileOps.clipboard = null },
-                    onPaste = { FileOps.paste(ctx, source.dir) })
+                    onPaste = {
+                        val c = FileOps.conflicts(clip.files, source.dir)
+                        if (c.isEmpty()) FileOps.paste(ctx, source.dir) else dialog = Dlg.Conflict(source.dir, c.map { it.name })
+                    })
             }
         }
         if (source is Source.Folder && !selecting && clip == null && remoteClip == null && !searching && source.dir.canWrite()) {
@@ -375,6 +382,23 @@ fun BrowserScreen(nav: Nav, source: Source) {
             FileOps.delete(ctx, d.items.map { it.file }, trash); dialog = null; selected.clear()
         }
         is Dlg.Props -> PropertiesDialog(d.items, s) { dialog = null }
+        is Dlg.Conflict -> AlertDialog(
+            onDismissRequest = { dialog = null },
+            title = { Text(if (d.names.size == 1) "File già presente" else "${d.names.size} elementi già presenti") },
+            text = {
+                Text(
+                    if (d.names.size == 1) "Nella cartella esiste già «${d.names[0]}». Cosa vuoi fare?"
+                    else "Nella cartella esistono già ${d.names.size} elementi con lo stesso nome (${d.names.take(3).joinToString { "«$it»" }}${if (d.names.size > 3) "…" else ""}). Cosa vuoi fare?"
+                )
+            },
+            confirmButton = {
+                Row {
+                    TextButton(onClick = { FileOps.paste(ctx, d.dest, OnConflict.REPLACE); dialog = null }) { Text("Sostituisci") }
+                    TextButton(onClick = { FileOps.paste(ctx, d.dest, OnConflict.RENAME); dialog = null }) { Text("Rinomina") }
+                }
+            },
+            dismissButton = { TextButton(onClick = { dialog = null }) { Text("Annulla") } },
+        )
         is Dlg.Zip -> {
             val base = if (d.items.size == 1) d.items[0].name.substringBeforeLast('.', d.items[0].name) else (dir?.name ?: "archivio")
             NameDialog("Comprimi in ZIP", "$base.zip", "Comprimi", onDismiss = { dialog = null }) { n ->
